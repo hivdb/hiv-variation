@@ -3,6 +3,8 @@ import csv
 import click
 import pymysql.cursors
 
+from codonutils import translate_codon
+
 GENE_CHOICES = ('PR', 'RT', 'IN')
 SQL_QUERY_INSTIS = """
 SELECT PtID, IsolateID, NumIIs as NumDrugs FROM _INTotalRx
@@ -45,7 +47,8 @@ def dump_samples_with_aas(host, port, user, password, db, out, genes):
         db=db, cursorclass=pymysql.cursors.DictCursor)
     with conn.cursor() as cursor:
         writer = csv.writer(out, delimiter='\t')
-        writer.writerow(['PtID', 'IsolateID', 'NumDrugs', 'Position', 'Codon'])
+        writer.writerow(['PtID', 'IsolateID', 'NumDrugs',
+                         'Position', 'Codon', 'AA'])
         cursor.execute(SQL_QUERY_INSTIS)
         isolates = cursor.fetchall()
         isolates = {i['IsolateID']: i for i in isolates}
@@ -53,9 +56,12 @@ def dump_samples_with_aas(host, port, user, password, db, out, genes):
         for one in iter_codons(conn, SQL_QUERY_INSTI_CODONS, isolate_ids):
             isolate = isolates[one['IsolateID']]
             for pos in range(1, 289):
+                codon = one['P{}'.format(pos)]
+                codon = codon.replace('~', '-')
+                aa = '.' if '.' in codon else translate_codon(codon)
                 writer.writerow([
                     isolate['PtID'], isolate['IsolateID'],
-                    isolate['NumDrugs'], pos, one['P{}'.format(pos)]
+                    isolate['NumDrugs'], pos, codon, aa
                 ])
 
 
