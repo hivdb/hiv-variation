@@ -121,3 +121,4 @@ tags
 [._]*.un~
 
 local/
+.DS_Store
