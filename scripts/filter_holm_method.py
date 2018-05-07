@@ -6,6 +6,7 @@ import click
 
 GENE_CHOICES = ('PR', 'RT', 'IN')
 NAIVE_NONPOLYMORPHIC_THRESHOLD = 0.005
+TREATED_NAIVE_RATIO_THRESHOLD = 5
 SIGNIFICANCE_LEVEL = 0.01
 INTVALUES = ['Position', '# Naive Positive', '# Naive Patients',
              '# Treated Positive', '# Treated Patients']
@@ -19,7 +20,8 @@ FLOATVALUES = ['P Value']
               help='output target directory')
 @click.argument('gene', required=True,
                 type=click.Choice(GENE_CHOICES))
-def filter_holm_method(indir, outdir, gene):
+@click.argument('subtype', type=str, required=False)
+def filter_holm_method(indir, outdir, gene, subtype):
     if gene in ('PR', 'RT'):
         raise NotImplementedError
     indir = os.path.abspath(os.path.join(
@@ -29,7 +31,9 @@ def filter_holm_method(indir, outdir, gene):
         os.path.dirname(__file__), outdir
     ))
     os.makedirs(outdir, exist_ok=True)
-    file_chi2 = os.path.join(indir, 'in_chi2.txt')
+    subtype_text = subtype or 'all'
+    file_chi2 = os.path.join(
+        indir, '{}_{}_chi2.txt'.format(gene.lower(), subtype_text.lower()))
     candidates = []
     with open(file_chi2) as file_chi2:
         reader = csv.DictReader(file_chi2, delimiter='\t')
@@ -43,12 +47,16 @@ def filter_holm_method(indir, outdir, gene):
                 continue
             treated_pcnt = \
                 row['# Treated Positive'] / row['# Treated Patients']
+            if naive_pcnt > 0 and \
+                    treated_pcnt / naive_pcnt < TREATED_NAIVE_RATIO_THRESHOLD:
+                continue
             row['% Naive Positive'] = '=TEXT({}, "0.00%")'.format(naive_pcnt)
             row['% Treated Positive'] = \
                 '=TEXT({}, "0.00%")'.format(treated_pcnt)
             candidates.append(row)
     candidates = sorted(candidates, key=lambda c: c['P Value'])
-    file_holm = os.path.join(outdir, 'in_holm_filtered.txt')
+    file_holm = os.path.join(
+        outdir, '{}_{}_tsm.txt'.format(gene.lower(), subtype_text.lower()))
     with open(file_holm, 'w') as file_holm:
         writer = csv.DictWriter(
             file_holm,

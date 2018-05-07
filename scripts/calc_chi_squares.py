@@ -19,7 +19,8 @@ TREATED = False
               help='output target directory')
 @click.argument('gene', required=True,
                 type=click.Choice(GENE_CHOICES))
-def calc_chi_squares(indir, outdir, gene):
+@click.argument('subtype', type=str, required=False)
+def calc_chi_squares(indir, outdir, gene, subtype):
     if gene in ('PR', 'RT'):
         raise NotImplementedError
     indir = os.path.abspath(os.path.join(
@@ -29,8 +30,10 @@ def calc_chi_squares(indir, outdir, gene):
         os.path.dirname(__file__), outdir
     ))
     os.makedirs(outdir, exist_ok=True)
-    file_codons = os.path.join(indir, 'in_codons.txt')
-    file_chi2 = os.path.join(outdir, 'in_chi2.txt')
+    subtype_text = subtype or 'all'
+    file_codons = os.path.join(indir, '{}_codons.txt'.format(gene.lower()))
+    file_chi2 = os.path.join(
+        outdir, '{}_{}_chi2.txt'.format(gene.lower(), subtype_text.lower()))
     counter = defaultdict(lambda: {
         NAIVE: set(),
         TREATED: set()
@@ -38,6 +41,8 @@ def calc_chi_squares(indir, outdir, gene):
     with open(file_codons) as file_codons:
         reader = csv.DictReader(file_codons, delimiter='\t')
         for codon in reader:
+            if subtype and codon['Subtype'] != subtype:
+                continue
             aa = codon['AA']
             if aa in '.X-' or len(aa) > 1:
                 # skip unsequenced or mixtures

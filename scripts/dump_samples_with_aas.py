@@ -13,7 +13,8 @@ GENE_RANGES = {
     'IN': list(range(1, 289)),
 }
 SQL_QUERY_INSTIS = """
-SELECT PtID, IsolateID, NumIIs as NumDrugs FROM _INTotalRx
+SELECT i.PtID, i.IsolateID, i.NumIIs as NumDrugs, s.Subtype
+FROM _INTotalRx i JOIN tblSubtypes s ON s.IsolateID=i.IsolateID
 WHERE Unknown='No' ORDER BY IsolateID
 """
 SQL_QUERY_SEQS = """
@@ -80,24 +81,27 @@ def dump_samples_with_aas(host, port, user, password, db, outdir, genes):
     with open(file_isolates, 'w') as file_isolates, \
             open(file_codons, 'w') as file_codons, \
             conn.cursor() as cursor:
-        writer_isolates = csv.writer(file_isolates, delimiter='\t')
+        writer_isolates = csv.DictWriter(
+            file_isolates,
+            ['PtID', 'IsolateID', 'NumDrugs', 'Subtype'],
+            delimiter='\t')
         writer_codons = csv.writer(file_codons, delimiter='\t')
         cursor.execute(SQL_QUERY_INSTIS)
         isolates = cursor.fetchall()
-        writer_isolates.writerow(['PtID', 'IsolateID', 'NumDrugs'])
-        writer_isolates.writerows([i['PtID'], i['IsolateID'], i['NumDrugs']]
-                                  for i in isolates)
+        writer_isolates.writeheader()
+        writer_isolates.writerows(isolates)
         isolates = {i['IsolateID']: i for i in isolates}
         isolate_ids = isolates.keys()
         writer_codons.writerow(['PtID', 'IsolateID', 'NumDrugs',
-                                'Position', 'Codon', 'AA'])
+                                'Subtype', 'Position', 'Codon', 'AA'])
         gene_range = GENE_RANGES['IN']
         for one in iter_seqs(conn, SQL_QUERY_SEQS, isolate_ids):
             isolate = isolates[one['IsolateID']]
             for pos, codon, aa in iter_codons(one, gene_range):
                 writer_codons.writerow([
                     isolate['PtID'], isolate['IsolateID'],
-                    isolate['NumDrugs'], pos, codon, aa
+                    isolate['NumDrugs'], isolate['Subtype'],
+                    pos, codon, aa
                 ])
 
 
