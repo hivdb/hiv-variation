@@ -7,9 +7,12 @@ from collections import defaultdict
 import numpy as np
 from scipy.stats import chi2_contingency
 
+from drmlookup import build_drmlookup
+
 GENE_CHOICES = ('PR', 'RT', 'IN')
 NAIVE = True
 TREATED = False
+DRMLOOKUP = build_drmlookup()
 
 
 @click.command()
@@ -43,14 +46,15 @@ def calc_chi_squares(indir, outdir, gene, subtype):
         for codon in reader:
             if subtype and codon['Subtype'] != subtype:
                 continue
-            aa = codon['AA']
-            if aa in '.X-' or len(aa) > 1:
-                # skip unsequenced or mixtures
+            aas = codon['AA']
+            if aas in '.X-' or len(aas) > 2:
+                # skip unsequenced or highly ambiguous mixtures
                 continue
             pos = int(codon['Position'])
             is_naive = int(codon['NumDrugs']) == 0
             ptid = int(codon['PtID'])
-            counter[(pos, aa)][is_naive].add(ptid)
+            for aa in aas:
+                counter[(pos, aa)][is_naive].add(ptid)
     site_counts = {}
     total_counts = defaultdict(lambda: {
         NAIVE: 0, TREATED: 0
@@ -66,13 +70,14 @@ def calc_chi_squares(indir, outdir, gene, subtype):
         total_counts[pos][NAIVE] += naive_count
         total_counts[pos][TREATED] += treated_count
 
+    drmlookup = DRMLOOKUP[gene]
     with open(file_chi2, 'w') as file_chi2:
         writer = csv.writer(file_chi2, delimiter='\t')
         writer.writerow([
             'Position', 'AA',
             '# Naive Positive', '# Naive Patients',
             '# Treated Positive', '# Treated Patients',
-            'P Value'
+            'P Value', 'Is DRM'
         ])
         for (pos, aa), count in sorted(site_counts.items()):
             naive_total = total_counts[pos][NAIVE]
@@ -92,7 +97,9 @@ def calc_chi_squares(indir, outdir, gene, subtype):
             writer.writerow([
                 pos, aa,
                 naive_pos, naive_total,
-                treated_pos, treated_total, p])
+                treated_pos, treated_total, p,
+                (pos, aa) in drmlookup
+            ])
 
 
 if __name__ == '__main__':

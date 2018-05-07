@@ -5,6 +5,7 @@ import click
 import pymysql.cursors
 
 from codonutils import translate_codon
+from drmlookup import build_drmlookup
 
 GENE_CHOICES = ('PR', 'RT', 'IN')
 GENE_RANGES = {
@@ -12,15 +13,19 @@ GENE_RANGES = {
     'RT': list(range(1, 561)),
     'IN': list(range(1, 289)),
 }
+NAIVE_SEQ_MAX_MUTS = 1
+MIN_DRM_SCORE = 16
 SQL_QUERY_INSTIS = """
 SELECT i.PtID, i.IsolateID, i.NumIIs as NumDrugs, s.Subtype
 FROM _INTotalRx i JOIN tblSubtypes s ON s.IsolateID=i.IsolateID
-WHERE Unknown='No' ORDER BY IsolateID
+WHERE Unknown='No' OR i.NumIIs > 0 ORDER BY IsolateID
 """
 SQL_QUERY_SEQS = """
 SELECT IsolateID, SequenceID, Firstaa, Lastaa, NASeq, AASeq
 FROM tblSequences WHERE IsolateID IN %s ORDER BY IsolateID
 """
+
+DRMLOOKUP = build_drmlookup(MIN_DRM_SCORE)
 
 
 def iter_seqs(conn, query, isolate_ids, every=1000):
@@ -35,25 +40,41 @@ def iter_seqs(conn, query, isolate_ids, every=1000):
             offset += every
 
 
-def iter_codons(seq, gene_range):
+def get_codons(seq, gene_range):
     firstaa = seq['Firstaa']
     lastaa = seq['Lastaa']
     naseq = seq['NASeq']
     aaseq = seq['AASeq']
     aaseq_only = not naseq
+    sites = []
     for pos in gene_range:
-        if pos < firstaa or pos > lastaa:
-            yield pos, '...', '.'
-            continue
-        aaidx0 = pos - firstaa
-        if aaseq_only:
-            yield pos, '...', aaseq[aaidx0]
-        else:
-            naidx0 = aaidx0 * 3
-            codon = naseq[naidx0:naidx0 + 3]
-            codon = codon.replace('~', '-')
-            aa = '.' if '.' in codon else translate_codon(codon)
-            yield pos, codon, aa
+        codon = '...'
+        aa = '.'
+        if firstaa <= pos <= lastaa:
+            aaidx0 = pos - firstaa
+            if aaseq_only:
+                aa = aaseq[aaidx0]
+            else:
+                naidx0 = aaidx0 * 3
+                codon = naseq[naidx0:naidx0 + 3]
+                codon = codon.replace('~', '-')
+                aa = '.' if '.' in codon else translate_codon(codon)
+        if len(aa) > 4:
+            aa = 'X'
+        sites.append((pos, codon, aa))
+    return sites
+
+
+def get_drms(gene, sites):
+    count = 0
+    drms = set()
+    drmlookup = DRMLOOKUP[gene]
+    for pos, _, aas in sites:
+        for aa in aas:
+            if (pos, aa) in drmlookup:
+                count += 1
+                drms.add('{}{}'.format(pos, aas))
+    return ', '.join(sorted(drms)), count
 
 
 @click.command()
@@ -78,31 +99,42 @@ def dump_samples_with_aas(host, port, user, password, db, outdir, genes):
     os.makedirs(outdir, exist_ok=True)
     file_isolates = os.path.join(outdir, 'in_isolates.txt')
     file_codons = os.path.join(outdir, 'in_codons.txt')
+    file_exc_naives = os.path.join(outdir, 'in_excluded_naives.txt')
     with open(file_isolates, 'w') as file_isolates, \
+            open(file_exc_naives, 'w') as file_exc_naives, \
             open(file_codons, 'w') as file_codons, \
             conn.cursor() as cursor:
         writer_isolates = csv.DictWriter(
             file_isolates,
             ['PtID', 'IsolateID', 'NumDrugs', 'Subtype'],
             delimiter='\t')
+        writer_exc_naives = csv.DictWriter(
+            file_exc_naives,
+            ['PtID', 'IsolateID', 'NumDrugs', 'Subtype', 'DRMs'],
+            delimiter='\t')
         writer_codons = csv.writer(file_codons, delimiter='\t')
         cursor.execute(SQL_QUERY_INSTIS)
         isolates = cursor.fetchall()
         writer_isolates.writeheader()
+        writer_exc_naives.writeheader()
         writer_isolates.writerows(isolates)
         isolates = {i['IsolateID']: i for i in isolates}
         isolate_ids = isolates.keys()
         writer_codons.writerow(['PtID', 'IsolateID', 'NumDrugs',
-                                'Subtype', 'Position', 'Codon', 'AA'])
+                               'Subtype', 'Position', 'Codon', 'AA'])
         gene_range = GENE_RANGES['IN']
         for one in iter_seqs(conn, SQL_QUERY_SEQS, isolate_ids):
             isolate = isolates[one['IsolateID']]
-            for pos, codon, aa in iter_codons(one, gene_range):
-                writer_codons.writerow([
-                    isolate['PtID'], isolate['IsolateID'],
-                    isolate['NumDrugs'], isolate['Subtype'],
-                    pos, codon, aa
-                ])
+            sites = get_codons(one, gene_range)
+            drms, num_drms = get_drms('IN', sites)
+            if isolate['NumDrugs'] == 0 and num_drms > NAIVE_SEQ_MAX_MUTS:
+                writer_exc_naives.writerow({**isolate, 'DRMs': drms})
+                continue
+            writer_codons.writerows([
+                isolate['PtID'], isolate['IsolateID'],
+                isolate['NumDrugs'], isolate['Subtype'],
+                pos, codon, aa
+            ] for pos, codon, aa in sites)
 
 
 if __name__ == '__main__':

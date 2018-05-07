@@ -57,18 +57,42 @@ def filter_holm_method(indir, outdir, gene, subtype):
     candidates = sorted(candidates, key=lambda c: c['P Value'])
     file_holm = os.path.join(
         outdir, '{}_{}_tsm.txt'.format(gene.lower(), subtype_text.lower()))
-    with open(file_holm, 'w') as file_holm:
+    file_nontsm_drm = os.path.join(
+        outdir, '{}_{}_nontsm_drm.txt'.format(gene.lower(),
+                                              subtype_text.lower()))
+    with open(file_holm, 'w') as file_holm, \
+            open(file_nontsm_drm, 'w') as file_nontsm_drm:
         writer = csv.DictWriter(
             file_holm,
             ['Position', 'AA', '% Naive Positive', '# Naive Positive',
              '# Naive Patients', '% Treated Positive', '# Treated Positive',
-             '# Treated Patients', 'P Value'],
+             '# Treated Patients', 'P Value', 'Is DRM'],
+            delimiter='\t')
+        drm_writer = csv.DictWriter(
+            file_nontsm_drm,
+            ['Position', 'AA', '% Naive Positive', '# Naive Positive',
+             '# Naive Patients', '% Treated Positive', '# Treated Positive',
+             '# Treated Patients', 'P Value', 'Is DRM'],
             delimiter='\t')
         writer.writeheader()
+        drm_writer.writeheader()
+        significants = []
+        nontsm_drms = []
+        broken = False
         for rank, cand in zip(range(len(candidates), 0, -1), candidates):
             pvalue = cand['P Value']
-            if pvalue <= SIGNIFICANCE_LEVEL / rank:
-                writer.writerow(cand)
+            if not broken and pvalue <= SIGNIFICANCE_LEVEL / rank:
+                significants.append(cand)
+            else:
+                broken = True
+                if cand['Is DRM'].upper() == 'TRUE':
+                    nontsm_drms.append(cand)
+        significants = sorted(significants,
+                              key=lambda c: (c['Position'], c['AA']))
+        writer.writerows(significants)
+        nontsm_drms = sorted(nontsm_drms,
+                             key=lambda c: (c['Position'], c['AA']))
+        drm_writer.writerows(nontsm_drms)
 
 
 if __name__ == '__main__':
