@@ -12,7 +12,14 @@ from drmlookup import build_drmlookup
 GENE_CHOICES = ('PR', 'RT', 'IN')
 NAIVE = True
 TREATED = False
+SIGNIFICANCE_LEVEL = 0.01
 DRMLOOKUP = build_drmlookup()
+
+IMPORTANT_POSITIONS = {
+    'PR': [],
+    'RT': [],
+    'IN': {66, 92, 118, 138, 140, 143, 147, 148, 155, 263}
+}
 
 
 @click.command()
@@ -37,6 +44,9 @@ def calc_chi_squares(indir, outdir, gene, subtype):
     file_codons = os.path.join(indir, '{}_codons.txt'.format(gene.lower()))
     file_chi2 = os.path.join(
         outdir, '{}_{}_chi2.txt'.format(gene.lower(), subtype_text.lower()))
+    file_chi2_sig = os.path.join(
+        outdir, '{}_{}_chi2_sig.txt'.format(gene.lower(),
+                                            subtype_text.lower()))
     counter = defaultdict(lambda: {
         NAIVE: set(),
         TREATED: set()
@@ -71,13 +81,22 @@ def calc_chi_squares(indir, outdir, gene, subtype):
         total_counts[pos][TREATED] += treated_count
 
     drmlookup = DRMLOOKUP[gene]
-    with open(file_chi2, 'w') as file_chi2:
+    impposlookup = IMPORTANT_POSITIONS[gene]
+    with open(file_chi2, 'w') as file_chi2, \
+            open(file_chi2_sig, 'w') as file_chi2_sig:
         writer = csv.writer(file_chi2, delimiter='\t')
+        writer2 = csv.writer(file_chi2_sig, delimiter='\t')
         writer.writerow([
             'Position', 'AA',
-            '# Naive Positive', '# Naive Patients',
-            '# Treated Positive', '# Treated Patients',
-            'P Value', 'Is DRM'
+            '# Naive Positive', '% Naive Positive', '# Naive Patients',
+            '# Treated Positive', '% Treated Positive', '# Treated Patients',
+            'P Value', 'Is DRM', 'Is Important Position'
+        ])
+        writer2.writerow([
+            'Position', 'AA',
+            '# Naive Positive', '% Naive Positive', '# Naive Patients',
+            '# Treated Positive', '% Treated Positive', '# Treated Patients',
+            'P Value', 'Is DRM', 'Is Important Position'
         ])
         for (pos, aa), count in sorted(site_counts.items()):
             naive_total = total_counts[pos][NAIVE]
@@ -94,12 +113,21 @@ def calc_chi_squares(indir, outdir, gene, subtype):
                 p = 1.0
             else:
                 _, p, _, _ = chi2_contingency(obs)
+            naive_pos_pcnt = naive_pos / naive_total
+            treated_pos_pcnt = treated_pos / treated_total
             writer.writerow([
                 pos, aa,
-                naive_pos, naive_total,
-                treated_pos, treated_total, p,
-                (pos, aa) in drmlookup
+                naive_pos, naive_pos_pcnt, naive_total,
+                treated_pos, treated_pos_pcnt, treated_total, p,
+                (pos, aa) in drmlookup, pos in impposlookup
             ])
+            if p < SIGNIFICANCE_LEVEL and naive_pos_pcnt < treated_pos_pcnt:
+                writer2.writerow([
+                    pos, aa,
+                    naive_pos, naive_pos / naive_total, naive_total,
+                    treated_pos, treated_pos / treated_total, treated_total, p,
+                    (pos, aa) in drmlookup, pos in impposlookup
+                ])
 
 
 if __name__ == '__main__':

@@ -2,4 +2,5 @@ click
 ipython
 numpy
 PyMySQL
+requests
 scipy

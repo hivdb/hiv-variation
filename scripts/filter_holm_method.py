@@ -10,7 +10,7 @@ TREATED_NAIVE_RATIO_THRESHOLD = 5
 SIGNIFICANCE_LEVEL = 0.01
 INTVALUES = ['Position', '# Naive Positive', '# Naive Patients',
              '# Treated Positive', '# Treated Patients']
-FLOATVALUES = ['P Value']
+FLOATVALUES = ['% Naive Positive', '% Treated Positive', 'P Value']
 
 
 @click.command()
@@ -42,17 +42,13 @@ def filter_holm_method(indir, outdir, gene, subtype):
                 row[intvalue] = int(row[intvalue])
             for floatvalue in FLOATVALUES:
                 row[floatvalue] = float(row[floatvalue])
-            naive_pcnt = row['# Naive Positive'] / row['# Naive Patients']
+            naive_pcnt = row['% Naive Positive']
             if naive_pcnt >= NAIVE_NONPOLYMORPHIC_THRESHOLD:
                 continue
-            treated_pcnt = \
-                row['# Treated Positive'] / row['# Treated Patients']
+            treated_pcnt = row['% Treated Positive']
             if naive_pcnt > 0 and \
                     treated_pcnt / naive_pcnt < TREATED_NAIVE_RATIO_THRESHOLD:
                 continue
-            row['% Naive Positive'] = '=TEXT({}, "0.00%")'.format(naive_pcnt)
-            row['% Treated Positive'] = \
-                '=TEXT({}, "0.00%")'.format(treated_pcnt)
             candidates.append(row)
     candidates = sorted(candidates, key=lambda c: c['P Value'])
     file_holm = os.path.join(
@@ -66,13 +62,15 @@ def filter_holm_method(indir, outdir, gene, subtype):
             file_holm,
             ['Position', 'AA', '% Naive Positive', '# Naive Positive',
              '# Naive Patients', '% Treated Positive', '# Treated Positive',
-             '# Treated Patients', 'P Value', 'Is DRM'],
+             '# Treated Patients', 'P Value', 'Rank', 'P Value (Corrected)',
+             'Is DRM', 'Is Important Position'],
             delimiter='\t')
         drm_writer = csv.DictWriter(
             file_nontsm_drm,
             ['Position', 'AA', '% Naive Positive', '# Naive Positive',
              '# Naive Patients', '% Treated Positive', '# Treated Positive',
-             '# Treated Patients', 'P Value', 'Is DRM'],
+             '# Treated Patients', 'P Value', 'Rank', 'P Value (Corrected)',
+             'Is DRM', 'Is Important Position'],
             delimiter='\t')
         writer.writeheader()
         drm_writer.writeheader()
@@ -81,7 +79,9 @@ def filter_holm_method(indir, outdir, gene, subtype):
         broken = False
         for rank, cand in zip(range(len(candidates), 0, -1), candidates):
             pvalue = cand['P Value']
-            if not broken and pvalue <= SIGNIFICANCE_LEVEL / rank:
+            cand['Rank'] = rank
+            cand['P Value (Corrected)'] = pvalue * rank
+            if not broken and pvalue * rank <= SIGNIFICANCE_LEVEL:
                 significants.append(cand)
             else:
                 broken = True

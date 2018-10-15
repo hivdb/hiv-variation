@@ -18,7 +18,11 @@ MIN_DRM_SCORE = 16
 SQL_QUERY_INSTIS = """
 SELECT i.PtID, i.IsolateID, i.NumIIs as NumDrugs, s.Subtype
 FROM _INTotalRx i JOIN tblSubtypes s ON s.IsolateID=i.IsolateID
-WHERE Unknown='No' OR i.NumIIs > 0 ORDER BY IsolateID
+WHERE Unknown='No' OR i.NumIIs > 0 AND NOT EXISTS(
+  SELECT 1 FROM tblIsolateFilters f
+  WHERE i.IsolateID=f.IsolateID AND f.Filter='QA') AND
+  s.Subtype NOT IN ('CPZ', 'O', 'Unknown')
+ORDER BY IsolateID
 """
 SQL_QUERY_SEQS = """
 SELECT IsolateID, SequenceID, Firstaa, Lastaa, NASeq, AASeq
