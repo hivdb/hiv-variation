@@ -13,7 +13,7 @@ GENE_RANGES = {
     'RT': list(range(1, 561)),
     'IN': list(range(1, 289)),
 }
-NAIVE_SEQ_MAX_MUTS = 1
+NAIVE_SEQ_MAX_DRMS = 1
 MIN_DRM_SCORE = 16
 SQL_QUERY_INSTIS = """
 SELECT i.PtID, i.IsolateID, i.NumIIs as NumDrugs, s.Subtype
@@ -131,7 +131,7 @@ def dump_samples_with_aas(host, port, user, password, db, outdir, genes):
             isolate = isolates[one['IsolateID']]
             sites = get_codons(one, gene_range)
             drms, num_drms = get_drms('IN', sites)
-            if isolate['NumDrugs'] == 0 and num_drms > NAIVE_SEQ_MAX_MUTS:
+            if isolate['NumDrugs'] == 0 and num_drms > NAIVE_SEQ_MAX_DRMS:
                 writer_exc_naives.writerow({**isolate, 'DRMs': drms})
                 continue
             writer_codons.writerows([

@@ -22,8 +22,9 @@ def build_drmlookup_old(min_drm_score=0):
 
 
 def build_drmlookup(min_drm_score=0):
-    drms = get_scored_mutations()
+    drms = get_scored_mutations(True)
     result = defaultdict(set)
-    for gene, pos, aa in drms:
+    for gene, pos, aa, is_major in drms:
+        result[gene].add((pos, aa, is_major))
         result[gene].add((pos, aa))
     return result

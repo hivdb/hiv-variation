@@ -13,6 +13,8 @@ GENE_CHOICES = ('PR', 'RT', 'IN')
 NAIVE = True
 TREATED = False
 SIGNIFICANCE_LEVEL = 0.01
+MAX_NAIVE_PCNT = 0.05
+MIN_FOLD_CHANGE = 2
 DRMLOOKUP = build_drmlookup()
 
 IMPORTANT_POSITIONS = {
@@ -90,13 +92,15 @@ def calc_chi_squares(indir, outdir, gene, subtype):
             'Position', 'AA',
             '# Naive Positive', '% Naive Positive', '# Naive Patients',
             '# Treated Positive', '% Treated Positive', '# Treated Patients',
-            'P Value', 'Is DRM', 'Is Important Position'
+            'P Value', 'Fold Change', 'Is Major DRM', 'Is Accessory DRM',
+            'Is DRM', 'Is Important Position'
         ])
         writer2.writerow([
             'Position', 'AA',
             '# Naive Positive', '% Naive Positive', '# Naive Patients',
             '# Treated Positive', '% Treated Positive', '# Treated Patients',
-            'P Value', 'Is DRM', 'Is Important Position'
+            'P Value', 'Fold Change', 'Is Major DRM', 'Is Accessory DRM',
+            'Is DRM', 'Is Important Position'
         ])
         for (pos, aa), count in sorted(site_counts.items()):
             naive_total = total_counts[pos][NAIVE]
@@ -115,18 +119,29 @@ def calc_chi_squares(indir, outdir, gene, subtype):
                 _, p, _, _ = chi2_contingency(obs)
             naive_pos_pcnt = naive_pos / naive_total
             treated_pos_pcnt = treated_pos / treated_total
+            is_major = (pos, aa, True) in drmlookup
+            is_acc = (pos, aa, False) in drmlookup
+            is_drm = is_major or is_acc
+            fold_change = 1e4
+            if naive_pos_pcnt > 0:
+                fold_change = treated_pos_pcnt / naive_pos_pcnt
             writer.writerow([
                 pos, aa,
                 naive_pos, naive_pos_pcnt, naive_total,
                 treated_pos, treated_pos_pcnt, treated_total, p,
-                (pos, aa) in drmlookup, pos in impposlookup
+                fold_change, is_major, is_acc, is_drm,
+                pos in impposlookup
             ])
-            if p < SIGNIFICANCE_LEVEL and naive_pos_pcnt < treated_pos_pcnt:
+            if is_drm or (p < SIGNIFICANCE_LEVEL and
+                          naive_pos_pcnt < MAX_NAIVE_PCNT and
+                          fold_change > MIN_FOLD_CHANGE and
+                          naive_pos_pcnt < treated_pos_pcnt):
                 writer2.writerow([
                     pos, aa,
                     naive_pos, naive_pos / naive_total, naive_total,
                     treated_pos, treated_pos / treated_total, treated_total, p,
-                    (pos, aa) in drmlookup, pos in impposlookup
+                    fold_change, is_major, is_acc, is_drm,
+                    pos in impposlookup
                 ])
 
 

@@ -10,7 +10,8 @@ TREATED_NAIVE_RATIO_THRESHOLD = 5
 SIGNIFICANCE_LEVEL = 0.01
 INTVALUES = ['Position', '# Naive Positive', '# Naive Patients',
              '# Treated Positive', '# Treated Patients']
-FLOATVALUES = ['% Naive Positive', '% Treated Positive', 'P Value']
+FLOATVALUES = ['% Naive Positive', '% Treated Positive',
+               'P Value', 'Fold Change']
 
 
 @click.command()
@@ -63,14 +64,16 @@ def filter_holm_method(indir, outdir, gene, subtype):
             ['Position', 'AA', '% Naive Positive', '# Naive Positive',
              '# Naive Patients', '% Treated Positive', '# Treated Positive',
              '# Treated Patients', 'P Value', 'Rank', 'P Value (Corrected)',
-             'Is DRM', 'Is Important Position'],
+             'Fold Change', 'Is Major DRM', 'Is Accessory DRM', 'Is DRM',
+             'Is Important Position'],
             delimiter='\t')
         drm_writer = csv.DictWriter(
             file_nontsm_drm,
             ['Position', 'AA', '% Naive Positive', '# Naive Positive',
              '# Naive Patients', '% Treated Positive', '# Treated Positive',
              '# Treated Patients', 'P Value', 'Rank', 'P Value (Corrected)',
-             'Is DRM', 'Is Important Position'],
+             'Fold Change', 'Is Major DRM', 'Is Accessory DRM', 'Is DRM',
+             'Is Important Position'],
             delimiter='\t')
         writer.writeheader()
         drm_writer.writeheader()

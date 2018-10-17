@@ -17,7 +17,7 @@ URL_SCORED_COMBO_MUTS = (
 def get_scored_mutations(includes_combo=False):
     resp = requests.get(URL_SCORED_MUTS)
     data = resp.json()
-    result = {(one['gene'], one['pos'], one['aa']) for one in data}
+    result = {(one['gene'], one['pos'], one['aa'], True) for one in data}
     if includes_combo:
         resp = requests.get(URL_SCORED_COMBO_MUTS)
         data = resp.json()
@@ -27,5 +27,5 @@ def get_scored_mutations(includes_combo=False):
             for mut in muts:
                 pos, aas = re.match(r'^(\d+)(.+)$', mut).groups()
                 for aa in aas:
-                    result.add((gene, int(pos), aa))
+                    result.add((gene, int(pos), aa, False))
     return result
