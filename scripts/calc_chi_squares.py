@@ -7,7 +7,7 @@ from collections import defaultdict
 import numpy as np
 from scipy.stats import chi2_contingency
 
-from drmlookup import build_drmlookup
+from drmlookup import build_drmlookup, build_algdrmlookup
 
 GENE_CHOICES = ('PR', 'RT', 'IN')
 NAIVE = True
@@ -16,6 +16,7 @@ SIGNIFICANCE_LEVEL = 0.01
 MAX_NAIVE_PCNT = 0.05
 MIN_FOLD_CHANGE = 2
 DRMLOOKUP = build_drmlookup()
+ALGDRMLOOKUP = build_algdrmlookup()
 
 IMPORTANT_POSITIONS = {
     'PR': [],
@@ -83,6 +84,7 @@ def calc_chi_squares(indir, outdir, gene, subtype):
         total_counts[pos][TREATED] += treated_count
 
     drmlookup = DRMLOOKUP[gene]
+    algdrmlookup = ALGDRMLOOKUP[gene]
     impposlookup = IMPORTANT_POSITIONS[gene]
     with open(file_chi2, 'w') as file_chi2, \
             open(file_chi2_sig, 'w') as file_chi2_sig:
@@ -93,14 +95,14 @@ def calc_chi_squares(indir, outdir, gene, subtype):
             '# Naive Positive', '% Naive Positive', '# Naive Patients',
             '# Treated Positive', '% Treated Positive', '# Treated Patients',
             'P Value', 'Fold Change', 'Is Major DRM', 'Is Accessory DRM',
-            'Is DRM', 'Is Important Position'
+            'Is DRM', 'Is Alg DRM', 'Is Important Position'
         ])
         writer2.writerow([
             'Position', 'AA',
             '# Naive Positive', '% Naive Positive', '# Naive Patients',
             '# Treated Positive', '% Treated Positive', '# Treated Patients',
             'P Value', 'Fold Change', 'Is Major DRM', 'Is Accessory DRM',
-            'Is DRM', 'Is Important Position'
+            'Is DRM', 'Is Alg DRM', 'Is Important Position'
         ])
         for (pos, aa), count in sorted(site_counts.items()):
             naive_total = total_counts[pos][NAIVE]
@@ -122,6 +124,7 @@ def calc_chi_squares(indir, outdir, gene, subtype):
             is_major = (pos, aa, True) in drmlookup
             is_acc = (pos, aa, False) in drmlookup
             is_drm = is_major or is_acc
+            is_algdrm = (pos, aa) in algdrmlookup
             fold_change = 1e4
             if naive_pos_pcnt > 0:
                 fold_change = treated_pos_pcnt / naive_pos_pcnt
@@ -129,7 +132,7 @@ def calc_chi_squares(indir, outdir, gene, subtype):
                 pos, aa,
                 naive_pos, naive_pos_pcnt, naive_total,
                 treated_pos, treated_pos_pcnt, treated_total, p,
-                fold_change, is_major, is_acc, is_drm,
+                fold_change, is_major, is_acc, is_drm, is_algdrm,
                 pos in impposlookup
             ])
             if is_drm or (p < SIGNIFICANCE_LEVEL and
@@ -140,7 +143,7 @@ def calc_chi_squares(indir, outdir, gene, subtype):
                     pos, aa,
                     naive_pos, naive_pos / naive_total, naive_total,
                     treated_pos, treated_pos / treated_total, treated_total, p,
-                    fold_change, is_major, is_acc, is_drm,
+                    fold_change, is_major, is_acc, is_drm, is_algdrm,
                     pos in impposlookup
                 ])
 

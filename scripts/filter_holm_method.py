@@ -65,7 +65,7 @@ def filter_holm_method(indir, outdir, gene, subtype):
              '# Naive Patients', '% Treated Positive', '# Treated Positive',
              '# Treated Patients', 'P Value', 'Rank', 'P Value (Corrected)',
              'Fold Change', 'Is Major DRM', 'Is Accessory DRM', 'Is DRM',
-             'Is Important Position'],
+             'Is Alg DRM', 'Is Important Position'],
             delimiter='\t')
         drm_writer = csv.DictWriter(
             file_nontsm_drm,
@@ -73,7 +73,7 @@ def filter_holm_method(indir, outdir, gene, subtype):
              '# Naive Patients', '% Treated Positive', '# Treated Positive',
              '# Treated Patients', 'P Value', 'Rank', 'P Value (Corrected)',
              'Fold Change', 'Is Major DRM', 'Is Accessory DRM', 'Is DRM',
-             'Is Important Position'],
+             'Is Alg DRM', 'Is Important Position'],
             delimiter='\t')
         writer.writeheader()
         drm_writer.writeheader()
