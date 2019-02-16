@@ -61,6 +61,7 @@ DRUG_CLASS_RX_QUERIES = {
                   (models.INTotalRx.ii_list.like('%INI%')),),
     },
 }
+MAJOR_SUBTYPES = ['A', 'B', 'C', 'CRF01_AE', 'CRF02_AG']
 AMINO_ACIDS = 'ACDEFGHIKLMNPQRSTVWY_-*'
 # UNUSUAL_CUTOFF = 0.0001  # 1 in 10,000 or 0.01%
 CSV_HEADER = [
@@ -89,9 +90,9 @@ CRITERIA_CHOICES = {
 }
 
 
-def iter_isolates(drugclass, subtype, rx_type, criteria):
-    print('Processing {} isolates ({}/{})...'
-          .format(drugclass, subtype, rx_type))
+def iter_isolates(drugclass, rx_type, criteria):
+    print('Processing {} isolates ({})...'
+          .format(drugclass, rx_type))
     gene = DRUG_CLASS_GENE_MAP[drugclass]
 
     conds = [CRITERIA_CHOICES[crkey] for crkey in criteria]
@@ -102,6 +103,9 @@ def iter_isolates(drugclass, subtype, rx_type, criteria):
             Isolate.isolate_type == 'Clinical',
             Isolate._host.has(Host.host == 'Human'),
             Isolate._species.has(Species.species == 'HIV1'),
+            Isolate._subtype.has(Subtype.subtype.notin_(
+                ['NA', 'U', 'O', 'N', 'P', 'CPZ', 'Unknown']
+            )),
             *conds
         )
         .options(db.selectinload(Isolate.sequences)
@@ -109,17 +113,6 @@ def iter_isolates(drugclass, subtype, rx_type, criteria):
         .options(db.selectinload(Isolate.sequences)
                  .selectinload(Sequence.mixtures))
     )
-
-    if subtype == 'All':
-        query = query.filter(
-            Isolate._subtype.has(Subtype.subtype.notin_(
-                ['NA', 'U', 'O', 'N', 'P', 'CPZ', 'Unknown']
-            ))
-        )
-    else:
-        query = query.filter(
-            Isolate._subtype.has(Subtype.subtype == subtype)
-        )
     if rx_type != 'all':
         rx_query = DRUG_CLASS_RX_QUERIES[rx_type][drugclass]
         attrname = '_{}_total_rx'.format(gene.lower())
@@ -135,51 +128,53 @@ def iter_isolates(drugclass, subtype, rx_type, criteria):
     print('  {0}/{0}...'.format(total))
 
 
-def stat_mutations(drugclass, subtype, rx_type, criteria):
-    counter = defaultdict(set)
-    total_counter = defaultdict(set)
-    for isolate in iter_isolates(drugclass, subtype, rx_type, criteria):
+def stat_mutations(drugclass, rx_type, criteria):
+    counter = defaultdict(lambda: defaultdict(set))
+    total_counter = defaultdict(lambda: defaultdict(set))
+    for isolate in iter_isolates(drugclass, rx_type, criteria):
         ptid = isolate.patient_id
-        # if isolate.filter_reason:
-        #     print('Warning: Isolate {} has filter_reason'.format(isolate.id))
         # this method returns consensus or single sequence
         sequence = isolate.get_or_create_consensus()
+        subtype = isolate.subtype
         for pos, aa in sequence.aas:
             if '_' in aa:
                 aa = '_'
             elif len(aa) > 1:
                 # ignore mixtures
                 continue
-            counter[(pos, aa)].add(ptid)
-            total_counter[pos].add((ptid, aa))
+            counter[(pos, aa)][subtype].add(ptid)
+            total_counter[pos][subtype].add((ptid, aa))
+            counter[(pos, aa)]['All'].add(ptid)
+            total_counter[pos]['All'].add((ptid, aa))
+            if subtype not in MAJOR_SUBTYPES:
+                counter[(pos, aa)]['Others'].add(ptid)
+                total_counter[pos]['Others'].add((ptid, aa))
+
     gene = DRUG_CLASS_GENE_MAP[drugclass]
     for pos in total_counter:
-        total = len(total_counter[pos])
+        totals = total_counter[pos]
         for aa in AMINO_ACIDS:
-            count = len(counter[(pos, aa)])
-            yield {
-                'gene': gene,
-                'drugclass': drugclass,
-                'subtype': subtype,
-                'rx_type': rx_type,
-                'position': pos,
-                'aa': aa,
-                'percent': count / total,
-                'count': count,
-                'total': total
-            }
+            counts = counter[(pos, aa)]
+            for subtype in totals:
+                total = len(totals[subtype])
+                count = len(counts[subtype])
+                yield {
+                    'gene': gene,
+                    'drugclass': drugclass,
+                    'subtype': subtype,
+                    'rx_type': rx_type,
+                    'position': pos,
+                    'aa': aa,
+                    'percent': count / total,
+                    'count': count,
+                    'total': total
+                }
 
 
 @click.command()
 @click.argument('drugclass', nargs=-1, required=True,
                 type=click.Choice(DRUG_CLASSES))
 @click.argument('output_file', type=click.File('w'))
-@click.option('--subtype', type=str, multiple=True,
-              default=('All', 'A', 'B', 'C', 'CRF01_AE', 'CRF02_AG'),
-              show_default=True, help='specify an HIV subtype/group')
-@click.option('--rx-type', type=click.Choice(('naive', 'art', 'all')),
-              multiple=True, default=('naive', 'art', 'all'),
-              show_default=True, help='specify treatment type')
 @click.option('--filter', type=click.Choice(CRITERIA_CHOICES.keys()),
               multiple=True, default=(), show_default=True,
               help='specify filter criteria')
@@ -187,16 +182,14 @@ def stat_mutations(drugclass, subtype, rx_type, criteria):
               default='json', help='output format')
 @click.option('--ugly-json', is_flag=True,
               help='output compressed (ugly) JSON instead of a pretty one')
-def export_aapcnt(drugclass, output_file, subtype,
-                  rx_type, filter, format, ugly_json):
+def export_aapcnt(drugclass, output_file, filter, format, ugly_json):
     if drugclass != ('INSTI', ):
         raise NotImplementedError
     result = []
     with app.app_context():
         for dc in drugclass:
-            for st in subtype:
-                for rt in rx_type:
-                    result.extend(stat_mutations(dc, st, rt, filter))
+            for rt in ('naive', 'art', 'all'):
+                result.extend(stat_mutations(dc, rt, filter))
     if format == 'json':
         indent = None if ugly_json else '  '
         json.dump(result, output_file, indent=indent)

@@ -32,10 +32,11 @@ def build_drmlookup(min_drm_score=0):
     return result
 
 
-def build_algdrmlookup():
+def build_algdrmlookup(minalgs=0):
     result = defaultdict(set)
     with open(ALGDRMS_FILENAME) as fp:
         reader = csv.DictReader(fp)
         for row in reader:
-            result['IN'].add((int(row['Position']), row['AA']))
+            if int(row['NumAlgs']) >= minalgs:
+                result['IN'].add((int(row['Position']), row['AA']))
     return result
