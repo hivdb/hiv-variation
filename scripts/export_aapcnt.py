@@ -80,9 +80,9 @@ CRITERIA_CHOICES = {
     'NO_CLONES': Isolate.clinical_isolate.has(
         ClinicalIsolate.clone_method == 'None'),
     'NO_QA_ISSUES': ~Isolate._filter.has(),
-    'GENBANK_ONLY': Isolate.references.any(
-        Reference.medline_id.isnot(None) &
-        (Reference.medline_id != '')
+    'GENBANK_ONLY': Isolate.sequences.any(
+        Sequence.accession.isnot(None) &
+        (Sequence.accession != '')
     ),
     'NO_PARTIAL_MUTS': Isolate.sequences.any(
         Sequence.sequence_type == 'PartialMutationList'
@@ -104,7 +104,7 @@ def iter_isolates(drugclass, rx_type, criteria):
             Isolate._host.has(Host.host == 'Human'),
             Isolate._species.has(Species.species == 'HIV1'),
             Isolate._subtype.has(Subtype.subtype.notin_(
-                ['NA', 'U', 'O', 'N', 'P', 'CPZ', 'Unknown']
+                ['O', 'N', 'P', 'CPZ']
             )),
             *conds
         )
@@ -123,33 +123,76 @@ def iter_isolates(drugclass, rx_type, criteria):
     total = query.count()
     query = query.order_by(Isolate.id)
     for offset in range(0, total, QUERY_CHUNK_SIZE):
-        print('  {}/{}...'.format(offset, total), end='\r')
+        print('  {}/{} isolates...'.format(offset, total), end='\r')
         yield from query.limit(QUERY_CHUNK_SIZE).offset(offset)
-    print('  {0}/{0}...'.format(total))
+    print('  {0} isolates...                   '.format(total))
 
 
-def stat_mutations(drugclass, rx_type, criteria):
+def stat_mutations(drugclass, rx_type, criteria, allow_mixture):
     counter = defaultdict(lambda: defaultdict(set))
     total_counter = defaultdict(lambda: defaultdict(set))
+    rx_counter = defaultdict(set)
+    ptids = set()
+    subtype_counter = defaultdict(set)
     for isolate in iter_isolates(drugclass, rx_type, criteria):
         ptid = isolate.patient_id
+        ptids.add(ptid)
         # this method returns consensus or single sequence
         sequence = isolate.get_or_create_consensus()
         subtype = isolate.subtype
-        for pos, aa in sequence.aas:
-            if '_' in aa:
-                aa = '_'
-            elif len(aa) > 1:
+        if subtype in MAJOR_SUBTYPES + ['D', 'F', 'G']:
+            subtype_counter[subtype].add(ptid)
+        else:
+            subtype_counter['Others'].add(ptid)
+        if rx_type == 'art':
+            rx = isolate.total_rx
+            if 'RAL' in rx.ii_list:
+                rx_counter['RAL'].add(ptid)
+            elif 'EVG' in rx.ii_list:
+                rx_counter['EVG'].add(ptid)
+            elif 'DTG' in rx.ii_list:
+                rx_counter['DTG'].add(ptid)
+            elif 'INI' in rx.ii_list:
+                rx_counter['INI'].add(ptid)
+        for pos, aas in sequence.aas:
+            if '_' in aas:
+                aas = '_'
+            elif not allow_mixture and len(aas) > 1:
                 # ignore mixtures
                 continue
-            counter[(pos, aa)][subtype].add(ptid)
-            total_counter[pos][subtype].add((ptid, aa))
-            counter[(pos, aa)]['All'].add(ptid)
-            total_counter[pos]['All'].add((ptid, aa))
-            if subtype not in MAJOR_SUBTYPES:
-                counter[(pos, aa)]['Others'].add(ptid)
-                total_counter[pos]['Others'].add((ptid, aa))
-
+            for aa in aas:
+                counter[(pos, aa)][subtype].add(ptid)
+                total_counter[pos][subtype].add((ptid, aa))
+                counter[(pos, aa)]['All'].add(ptid)
+                total_counter[pos]['All'].add((ptid, aa))
+                if subtype not in MAJOR_SUBTYPES:
+                    counter[(pos, aa)]['Others'].add(ptid)
+                    total_counter[pos]['Others'].add((ptid, aa))
+    total = len(ptids)
+    print('  {0} patients:'.format(total))
+    inothersubtypes = set()
+    for subtype in MAJOR_SUBTYPES + ['D', 'F', 'G', 'Others']:
+        print('    Subtype {0}: {1} patients'
+              .format(subtype, len(subtype_counter[subtype])))
+        dups = inothersubtypes & subtype_counter[subtype]
+        if dups:
+            print(
+                '    Following patients has multiple subtypes: {0}'
+                .format(', '.join(str(d) for d in dups)))
+        inothersubtypes |= subtype_counter[subtype]
+    if rx_type == 'art':
+        ralset = rx_counter['RAL']
+        evgset = rx_counter['EVG']
+        dtgset = rx_counter['DTG']
+        iniset = rx_counter['INI']
+        ralonly = len(ralset - evgset - dtgset - iniset)
+        print('    RAL only: {0}/{1}'.format(ralonly, total))
+        evgonly = len(evgset - ralset - dtgset - iniset)
+        print('    EVG only: {0}/{1}'.format(evgonly, total))
+        dtgonly = len(dtgset - ralset - evgset - iniset)
+        print('    DTG only: {0}/{1}'.format(dtgonly, total))
+        print('    Remains: {0}/{1}'.format(
+            total - ralonly - evgonly - dtgonly, total))
     gene = DRUG_CLASS_GENE_MAP[drugclass]
     for pos in total_counter:
         totals = total_counter[pos]
@@ -176,20 +219,23 @@ def stat_mutations(drugclass, rx_type, criteria):
                 type=click.Choice(DRUG_CLASSES))
 @click.argument('output_file', type=click.File('w'))
 @click.option('--filter', type=click.Choice(CRITERIA_CHOICES.keys()),
-              multiple=True, default=(), show_default=True,
-              help='specify filter criteria')
+              multiple=True, default=('NO_CLONES', 'NO_QA_ISSUES'),
+              show_default=True, help='specify filter criteria')
+@click.option('--allow-mixture', is_flag=True,
+              help='the result should include mixtures')
 @click.option('--format', type=click.Choice(['json', 'csv']),
               default='json', help='output format')
 @click.option('--ugly-json', is_flag=True,
               help='output compressed (ugly) JSON instead of a pretty one')
-def export_aapcnt(drugclass, output_file, filter, format, ugly_json):
+def export_aapcnt(drugclass, output_file, filter,
+                  allow_mixture, format, ugly_json):
     if drugclass != ('INSTI', ):
         raise NotImplementedError
     result = []
     with app.app_context():
         for dc in drugclass:
-            for rt in ('naive', 'art', 'all'):
-                result.extend(stat_mutations(dc, rt, filter))
+            for rt in ('naive', 'art'):
+                result.extend(stat_mutations(dc, rt, filter, allow_mixture))
     if format == 'json':
         indent = None if ugly_json else '  '
         json.dump(result, output_file, indent=indent)

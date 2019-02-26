@@ -40,3 +40,14 @@ def build_algdrmlookup(minalgs=0):
             if int(row['NumAlgs']) >= minalgs:
                 result['IN'].add((int(row['Position']), row['AA']))
     return result
+
+
+def build_algdrmlookup_with_numalgs(minalgs=0):
+    result = defaultdict(dict)
+    with open(ALGDRMS_FILENAME) as fp:
+        reader = csv.DictReader(fp)
+        for row in reader:
+            numalgs = int(row['NumAlgs'])
+            if numalgs >= minalgs:
+                result['IN'][(int(row['Position']), row['AA'])] = numalgs
+    return result

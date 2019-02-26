@@ -1,13 +1,12 @@
 #! /usr/bin/env python
-import os
 import csv
+import json
 import click
-from collections import defaultdict
 
 import numpy as np
 from scipy.stats import chi2_contingency
 
-from drmlookup import build_drmlookup, build_algdrmlookup
+from drmlookup import build_drmlookup, build_algdrmlookup_with_numalgs
 
 GENE_CHOICES = ('PR', 'RT', 'IN')
 NAIVE = True
@@ -16,7 +15,7 @@ SIGNIFICANCE_LEVEL = 0.01
 MAX_NAIVE_PCNT = 0.05
 MIN_FOLD_CHANGE = 2
 DRMLOOKUP = build_drmlookup()
-ALGDRMLOOKUP = build_algdrmlookup()
+ALGDRMLOOKUP = build_algdrmlookup_with_numalgs()
 
 IMPORTANT_POSITIONS = {
     'PR': [],
@@ -26,126 +25,90 @@ IMPORTANT_POSITIONS = {
 
 
 @click.command()
-@click.option('-i', '--indir', type=str, default='../local',
-              help='input source directory')
-@click.option('-o', '--outdir', type=str, default='../data',
-              help='output target directory')
+@click.option('-i', '--prevalence-file', type=click.File('r'),
+              help='input prevalence source')
+@click.option('-o', '--output-file', type=click.File('w'),
+              help='output target TSV')
 @click.argument('gene', required=True,
                 type=click.Choice(GENE_CHOICES))
-@click.argument('subtype', type=str, required=False)
-def calc_chi_squares(indir, outdir, gene, subtype):
+def calc_chi_squares(prevalence_file, output_file, gene):
     if gene in ('PR', 'RT'):
         raise NotImplementedError
-    indir = os.path.abspath(os.path.join(
-        os.path.dirname(__file__), indir
-    ))
-    outdir = os.path.abspath(os.path.join(
-        os.path.dirname(__file__), outdir
-    ))
-    os.makedirs(outdir, exist_ok=True)
-    subtype_text = subtype or 'all'
-    file_codons = os.path.join(indir, '{}_codons.txt'.format(gene.lower()))
-    file_chi2 = os.path.join(
-        outdir, '{}_{}_chi2.txt'.format(gene.lower(), subtype_text.lower()))
-    file_chi2_sig = os.path.join(
-        outdir, '{}_{}_chi2_sig.txt'.format(gene.lower(),
-                                            subtype_text.lower()))
-    counter = defaultdict(lambda: {
-        NAIVE: set(),
-        TREATED: set()
-    })
-    with open(file_codons) as file_codons:
-        reader = csv.DictReader(file_codons, delimiter='\t')
-        for codon in reader:
-            if subtype and codon['Subtype'] != subtype:
-                continue
-            aas = codon['AA']
-            if aas in '.X-' or len(aas) > 2:
-                # skip unsequenced or highly ambiguous mixtures
-                continue
-            pos = int(codon['Position'])
-            is_naive = int(codon['NumDrugs']) == 0
-            ptid = int(codon['PtID'])
-            for aa in aas:
-                counter[(pos, aa)][is_naive].add(ptid)
-    site_counts = {}
-    total_counts = defaultdict(lambda: {
-        NAIVE: 0, TREATED: 0
-    })
-    for (pos, aa), site_counter in counter.items():
-        naive_count = len(site_counter[NAIVE])
-        treated_count = len(site_counter[TREATED])
-
-        site_counts[(pos, aa)] = {
-            NAIVE: naive_count,
-            TREATED: treated_count
-        }
-        total_counts[pos][NAIVE] += naive_count
-        total_counts[pos][TREATED] += treated_count
+    prevalence_data = json.load(prevalence_file)
 
     drmlookup = DRMLOOKUP[gene]
     algdrmlookup = ALGDRMLOOKUP[gene]
     impposlookup = IMPORTANT_POSITIONS[gene]
-    with open(file_chi2, 'w') as file_chi2, \
-            open(file_chi2_sig, 'w') as file_chi2_sig:
-        writer = csv.writer(file_chi2, delimiter='\t')
-        writer2 = csv.writer(file_chi2_sig, delimiter='\t')
-        writer.writerow([
+    writer = csv.DictWriter(
+        output_file,
+        [
             'Position', 'AA',
             '# Naive Positive', '% Naive Positive', '# Naive Patients',
             '# Treated Positive', '% Treated Positive', '# Treated Patients',
             'P Value', 'Fold Change', 'Is Major DRM', 'Is Accessory DRM',
-            'Is DRM', 'Is Alg DRM', 'Is Important Position'
-        ])
-        writer2.writerow([
-            'Position', 'AA',
-            '# Naive Positive', '% Naive Positive', '# Naive Patients',
-            '# Treated Positive', '% Treated Positive', '# Treated Patients',
-            'P Value', 'Fold Change', 'Is Major DRM', 'Is Accessory DRM',
-            'Is DRM', 'Is Alg DRM', 'Is Important Position'
-        ])
-        for (pos, aa), count in sorted(site_counts.items()):
-            naive_total = total_counts[pos][NAIVE]
-            naive_pos = count[NAIVE]
-            naive_neg = naive_total - naive_pos
-            treated_total = total_counts[pos][TREATED]
-            treated_pos = count[TREATED]
-            treated_neg = treated_total - treated_pos
-            obs = np.array([
-                [naive_pos, naive_neg],
-                [treated_pos, treated_neg]
-            ])
-            if naive_neg == treated_neg == 0:
-                p = 1.0
-            else:
-                _, p, _, _ = chi2_contingency(obs)
-            naive_pos_pcnt = naive_pos / naive_total
-            treated_pos_pcnt = treated_pos / treated_total
+            'Is DRM', '# Algs', 'Is Important Position', 'Is Significant'
+        ], delimiter='\t')
+    writer.writeheader()
+    rows = {}
+    for item in prevalence_data:
+        if item['subtype'] != 'All':
+            # we only want all subtypes
+            continue
+        pos = item['position']
+        aa = item['aa']
+        if (pos, aa) not in rows:
             is_major = (pos, aa, True) in drmlookup
             is_acc = (pos, aa, False) in drmlookup
-            is_drm = is_major or is_acc
-            is_algdrm = (pos, aa) in algdrmlookup
-            fold_change = 1e4
-            if naive_pos_pcnt > 0:
-                fold_change = treated_pos_pcnt / naive_pos_pcnt
-            writer.writerow([
-                pos, aa,
-                naive_pos, naive_pos_pcnt, naive_total,
-                treated_pos, treated_pos_pcnt, treated_total, p,
-                fold_change, is_major, is_acc, is_drm, is_algdrm,
-                pos in impposlookup
-            ])
-            if is_drm or (p < SIGNIFICANCE_LEVEL and
-                          naive_pos_pcnt < MAX_NAIVE_PCNT and
-                          fold_change > MIN_FOLD_CHANGE and
-                          naive_pos_pcnt < treated_pos_pcnt):
-                writer2.writerow([
-                    pos, aa,
-                    naive_pos, naive_pos / naive_total, naive_total,
-                    treated_pos, treated_pos / treated_total, treated_total, p,
-                    fold_change, is_major, is_acc, is_drm, is_algdrm,
-                    pos in impposlookup
-                ])
+            rows[(pos, aa)] = {
+                'Position': pos,
+                'AA': aa,
+                'Is Major DRM': is_major,
+                'Is Accessory DRM': is_acc,
+                'Is DRM': is_major or is_acc,
+                '# Algs': algdrmlookup.get((pos, aa), 0),
+                'Is Important Position': pos in impposlookup,
+            }
+        row = rows[(pos, aa)]
+        rx = item['rx_type']
+        count = item['count']
+        total = item['total']
+        pcnt = item['percent']
+        if rx == 'naive':
+            row['# Naive Positive'] = count
+            row['% Naive Positive'] = pcnt
+            row['# Naive Patients'] = total
+        else:
+            row['# Treated Positive'] = count
+            row['% Treated Positive'] = pcnt
+            row['# Treated Patients'] = total
+    for row in rows.values():
+        naive_pos = row['# Naive Positive']
+        naive_neg = row['# Naive Patients'] - naive_pos
+        treated_pos = row['# Treated Positive']
+        treated_neg = row['# Treated Patients'] - treated_pos
+        obs = np.array([
+            [naive_pos, naive_neg],
+            [treated_pos, treated_neg]
+        ])
+        if naive_pos == treated_pos == 0:
+            continue
+        elif naive_neg == treated_neg == 0:
+            p = 1.0
+        else:
+            _, p, _, _ = chi2_contingency(obs)
+        fold_change = 1e4
+        naive_pos_pcnt = row['% Naive Positive']
+        treated_pos_pcnt = row['% Treated Positive']
+        if row['% Naive Positive'] > 0:
+            fold_change = (treated_pos_pcnt / naive_pos_pcnt)
+        is_sig = row['# Algs'] > 1 or (p < SIGNIFICANCE_LEVEL and
+                                       naive_pos_pcnt < MAX_NAIVE_PCNT and
+                                       fold_change > MIN_FOLD_CHANGE and
+                                       naive_pos_pcnt < treated_pos_pcnt)
+        row['P Value'] = p
+        row['Fold Change'] = fold_change
+        row['Is Significant'] = is_sig
+        writer.writerow(row)
 
 
 if __name__ == '__main__':

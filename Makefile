@@ -1,15 +1,37 @@
-dump:
-	@cd scripts && python dump_samples_with_aas.py IN
+local/in_prevalence.json: scripts/export_aapcnt.py
+	@mkdir -p local/
+	# Create local/in_prevalence.json
+	DATABASE_URI="mysql+pymysql://rshafer:rshafer@10.77.6.244/HIVDB2" python scripts/export_aapcnt.py INSTI local/in_prevalence.json
 
-in_tsm:
-	@cd scripts && python calc_chi_squares.py IN && python filter_holm_method.py IN
-	@cd scripts && python calc_chi_squares.py IN A && python filter_holm_method.py IN A
-	@cd scripts && python calc_chi_squares.py IN B && python filter_holm_method.py IN B
-	@cd scripts && python calc_chi_squares.py IN C && python filter_holm_method.py IN C
-	@cd scripts && python calc_chi_squares.py IN CRF01_AE && python filter_holm_method.py IN CRF01_AE
-	@cd scripts && python calc_chi_squares.py IN CRF02_AG && python filter_holm_method.py IN CRF02_AG
+local/in_prevalence-allow_mixture.json: scripts/export_aapcnt.py
+	@mkdir -p local/
+	# Create local/in_prevalence-allow_mixture.json
+	DATABASE_URI="mysql+pymysql://rshafer:rshafer@10.77.6.244/HIVDB2" python scripts/export_aapcnt.py INSTI local/in_prevalence-allow_mixture.json --allow-mixture
 
-in_prevalence:
-	DATABASE_URI="mysql+pymysql://rshafer:rshafer@10.77.6.244/HIVDB2" python scripts/export_aapcnt.py INSTI local/in_prevalence-no_filter.json
-	DATABASE_URI="mysql+pymysql://rshafer:rshafer@10.77.6.244/HIVDB2" python scripts/export_aapcnt.py INSTI local/in_prevalence-no_qa_issues.json --filter NO_QA_ISSUES
-	#@cd scripts && python calc_prevalence_by_subtypes.py IN
+local/in_drm_prevalence.txt: local/in_prevalence.json scripts/create_prevalence_table.py
+	# Create local/in_drm_prevalence.txt
+	@cd scripts && python create_prevalence_table.py IN -i ../local/in_prevalence.json -o ../local/in_drm_prevalence.txt
+
+local/in_drm_prevalence-allow_mixture.txt: local/in_prevalence-allow_mixture.json scripts/create_prevalence_table.py
+	# Create local/in_drm_prevalence-allow_mixture.txt
+	@cd scripts && python create_prevalence_table.py IN -i ../local/in_prevalence-allow_mixture.json -o ../local/in_drm_prevalence-allow_mixture.txt
+
+local/in_sigmut_prevalence.txt: local/in_prevalence.json scripts/create_prevalence_table.py
+	# Create local/in_sigmut_prevalence.txt
+	@cd scripts && python create_prevalence_table.py IN -i ../local/in_prevalence.json -o ../local/in_sigmut_prevalence.txt --num-algs-range 0 0
+
+local/in_sigmut_prevalence-allow_mixture.txt: local/in_prevalence-allow_mixture.json scripts/create_prevalence_table.py
+	# Create local/in_sigmut_prevalence-allow_mixture.txt
+	@cd scripts && python create_prevalence_table.py IN -i ../local/in_prevalence-allow_mixture.json -o ../local/in_sigmut_prevalence-allow_mixture.txt --num-algs-range 0 0
+
+local/in_chi2.txt: local/in_prevalence.json scripts/calc_chi_squares.py
+	# Create local/in_chi_squares.txt
+	@cd scripts && python calc_chi_squares.py IN -i ../local/in_prevalence.json -o ../local/in_chi2.txt
+
+local/in_chi2-allow_mixture.txt: local/in_prevalence.json scripts/calc_chi_squares.py
+	# Create local/in_chi_squares.txt
+	@cd scripts && python calc_chi_squares.py IN -i ../local/in_prevalence-allow_mixture.json -o ../local/in_chi2-allow_mixture.txt
+
+all: local/in_drm_prevalence.txt local/in_drm_prevalence-allow_mixture.txt local/in_sigmut_prevalence.txt local/in_sigmut_prevalence-allow_mixture.txt
+
+.PHONY: all
