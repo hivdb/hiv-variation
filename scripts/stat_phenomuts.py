@@ -70,7 +70,7 @@ def iter_mutations(phenodata):
 @click.option('-o', '--output-file', type=click.File('w'), default='-',
               show_default=True, help='output target TSV')
 @click.option('--method', type=str, multiple=True,
-              default=('PhenoSense', 'HeLaCD4-ViiV'),
+              default=('PhenoSense',),
               show_default=True, help='include methods only')
 @click.option('--all-methods', is_flag=True,
               help='include all methods')

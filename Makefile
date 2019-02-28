@@ -1,3 +1,13 @@
+local/hiv2_prevalence.json: scripts/export_aapcnt.py
+	@mkdir -p local/
+	# Create local/hiv2_prevalence.json
+	DATABASE_URI="mysql+pymysql://rshafer:rshafer@10.77.6.244/HIVDB2" python scripts/export_aapcnt.py PI NRTI NNRTI INSTI local/hiv2_prevalence.json --hiv2 --filter NO_QA_ISSUES
+
+local/hiv2_prevalence.csv: scripts/export_aapcnt.py
+	@mkdir -p local/
+	# Create local/hiv2_prevalence.csv
+	DATABASE_URI="mysql+pymysql://rshafer:rshafer@10.77.6.244/HIVDB2" python scripts/export_aapcnt.py PI NRTI NNRTI INSTI local/hiv2_prevalence.csv --hiv2 --filter NO_QA_ISSUES --format csv
+
 local/in_prevalence.json: scripts/export_aapcnt.py
 	@mkdir -p local/
 	# Create local/in_prevalence.json

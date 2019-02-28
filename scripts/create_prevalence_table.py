@@ -16,7 +16,7 @@ MAX_NAIVE_PCNT = 0.005
 MIN_FOLD_CHANGE = 2
 ALGDRMLOOKUP = build_algdrmlookup_with_numalgs()
 
-MAJOR_SUBTYPES = ['A', 'B', 'C', 'CRF01_AE', 'CRF02_AG']
+MAJOR_SUBTYPES = ['A', 'B', 'C', 'CRF01_AE', 'CRF02_AG', 'D', 'F', 'G']
 
 
 @click.command()

@@ -4,3 +4,6 @@ numpy
 PyMySQL
 requests
 scipy
+matplotlib
+sklearn
+seaborn
