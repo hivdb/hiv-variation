@@ -1,46 +1,95 @@
 #! /usr/bin/env python
 
-# Python 3.6+ is required to preserve dict key order
-
 import csv
 import click
+import random
 
 import numpy as np
-# import matplotlib.pyplot as plot
+import pandas as pd
+import matplotlib.pyplot as plot
 from sklearn.decomposition import PCA
+from adjustText import adjust_text
+
+
+def plot_pca(data, pca_arr):
+    mutations = np.array(data.index)
+    plot.figure(figsize=(40, 24))
+    n = 1
+    for i in range(5):
+        for j in range(i + 1, 6):
+            plot.subplot(3, 5, n)
+            n += 1
+            xs = pca_arr[:, i]
+            ys = pca_arr[:, j]
+            plot.scatter(xs, ys, s=1, c='white')
+            texts = []
+            for x, y, mut in zip(xs, ys, mutations):
+                # adjust_text has a bug that text with exactly same x/y
+                # sometime overlap together perfectly; by slightly tweaking
+                # the coordinate can avoid the issue
+                x += (random.random() - 0.5) / 50
+                y += (random.random() - 0.5) / 50
+                texts.append(plot.text(x, y, mut, fontsize=9))
+            plot.xlabel('PC{}'.format(i + 1))
+            plot.ylabel('PC{}'.format(j + 1))
+            print(i, j, adjust_text(texts, lim=10, text_from_points=False))
+    plot.savefig("plots/pca-drms.pdf")
 
 
 @click.command()
 @click.argument('input-file', type=click.File('r'))
 @click.argument('output-file', type=click.File('w'), default='-')
-def main(input_file, output_file):
-    data = []
-    reader = csv.reader(input_file, delimiter='\t')
-    _, _, *feature_names, _ = next(reader)
-    for pos, aa, *features, _ in reader:
-        data.append([int(f) for f in features])
-    arr = np.transpose(data)
+@click.option('--plot', is_flag=True)
+def main(input_file, output_file, plot):
+    data = pd.read_csv(input_file, delimiter='\t', index_col=0, dtype={
+        'Mut': str, 'Algs': int, 'Freq': int, 'Poly': int,
+        'Selection': int, 'Susc': int, 'Position': int
+    })
+    exit(1)
+    arr = np.array(data)
     pca = PCA()
     arr = pca.fit_transform(arr)
-    # plot.figure(figsize=(12, 12))
+    arr = np.array(pd.DataFrame(arr).mul(-1))
     writer = csv.writer(output_file, delimiter='\t')
-    writer.writerow(
-        ['Feature'] + ['PC{}'.format(i)
-                       for i in range(1, 1 + len(feature_names))])
-    for f, row in zip(feature_names, arr):
+    pcs = ['PC{}'.format(i + 1) for i in range(6)]
+    writer.writerow(['', *pcs])
+    writer.writerow(['Components'])
+    for i, (feature, comp) in enumerate(
+            zip(data.columns.values, pca.components_)):
+        writer.writerow(['PC{}'.format(i + 1), *comp])
+    writer.writerow([
+        'Principal axes in feature space, representing the directions of '
+        'maximum variance in the data. The components are sorted by '
+        '"Explained Variance".'])
+    writer.writerow([])
+    writer.writerow(['Explained Variance',
+                     *pca.explained_variance_])
+    writer.writerow([
+        'The amount of variance explained by each of the selected components.'
+    ])
+    writer.writerow([])
+    writer.writerow(['Explained Variance Ratio',
+                     *pca.explained_variance_ratio_])
+    writer.writerow([
+        'Percentage of variance explained by each of the selected components.'
+    ])
+    writer.writerow([])
+    writer.writerow(['Singular Values', *pca.singular_values_])
+    writer.writerow([
+        'The singular values corresponding to each of the selected components.'
+    ])
+    writer.writerow([])
+    writer.writerow(['Mean', *pca.mean_])
+    writer.writerow([
+        'Per-feature empirical mean, estimated from the training set.'
+    ])
+    writer.writerow([])
+    writer.writerow(['Mutation'])
+    mutations = np.array(data.index)
+    for f, row in zip(mutations, arr):
         writer.writerow([f, *row])
-
-    # for (x, y), muts in grouped_muts.items():
-    #     for mut in muts:
-    #         writer.writerow([mut, x, y])
-    #     muts = ','.join(muts)
-    #     xoffset = .026 * len(muts)
-    #     plot.annotate(muts, (x - xoffset, y + .05))
-    # plot.xlim(-3, 3)
-    # plot.ylim(-3, 3)
-    # plot.xlabel('PC1')
-    # plot.ylabel('PC2')
-    # plot.savefig("plots/pca-drms.png", dpi=300)
+    if plot:
+        plot_pca(data, arr)
 
 
 if __name__ == '__main__':
