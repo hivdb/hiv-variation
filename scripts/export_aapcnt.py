@@ -1,3 +1,4 @@
+#! /usr/bin/env python
 import csv
 import json
 from collections import defaultdict, Counter
@@ -50,13 +51,13 @@ DRUG_CLASS_RX_QUERIES = {
         'PI': ((models.PRTotalRx.num_pis > 0) |
                (models.PRTotalRx.pi_list.like('%PI%')),),
         'NRTI': ((models.RTTotalRx.num_nrtis > 0) |
-                 (models.RTTotalRx.nrti_list.like('%NRTI%')),),
+                 (models.RTTotalRx.nrti_list.like('%RTI%')),),
         'NNRTI': ((models.RTTotalRx.num_nnrtis > 0) |
-                  (models.RTTotalRx.nnrti_list.like('%NNRTI%')),),
+                  (models.RTTotalRx.nnrti_list.like('%RTI%')),),
         'RTI': ((models.RTTotalRx.num_nrtis > 0) |
-                (models.RTTotalRx.nrti_list.like('%NRTI%')) |
+                (models.RTTotalRx.nrti_list.like('%RTI%')) |
                 (models.RTTotalRx.num_nnrtis > 0) |
-                (models.RTTotalRx.nnrti_list.like('%NNRTI%')),),
+                (models.RTTotalRx.nnrti_list.like('%RTI%')),),
         'INSTI': ((models.INTotalRx.num_iis > 0) |
                   (models.INTotalRx.ii_list.like('%INI%')),),
     },
@@ -202,7 +203,7 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2, allow_mixture):
         print('    Remains: {0}/{1}'.format(
             total - ralonly - evgonly - dtgonly, total))
     gene = DRUG_CLASS_GENE_MAP[drugclass]
-    for pos in total_counter:
+    for pos in sorted(total_counter.keys()):
         totals = total_counter[pos]
         for aa in AMINO_ACIDS:
             counts = counter[(pos, aa)]

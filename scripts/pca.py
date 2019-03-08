@@ -11,7 +11,7 @@ from sklearn.decomposition import PCA
 from adjustText import adjust_text
 
 
-def plot_pca(data, pca_arr):
+def plot_pca_all(data, pca_arr):
     mutations = np.array(data.index)
     plot.figure(figsize=(40, 24))
     n = 1
@@ -36,6 +36,26 @@ def plot_pca(data, pca_arr):
     plot.savefig("plots/pca-drms.pdf")
 
 
+def plot_pca(data, pca_arr):
+    mutations = np.array(data.index)
+    plot.figure(figsize=(8, 8))
+    xs = pca_arr[:, 0]
+    ys = pca_arr[:, 1]
+    plot.scatter(xs, ys, s=1, c='white')
+    texts = []
+    for x, y, mut in zip(xs, ys, mutations):
+        # adjust_text has a bug that text with exactly same x/y
+        # sometime overlap together perfectly; by slightly tweaking
+        # the coordinate can avoid the issue
+        x += (random.random() - 0.5) / 50
+        y += (random.random() - 0.5) / 50
+        texts.append(plot.text(x, y, mut, fontsize=9))
+    plot.xlabel('PC1')
+    plot.ylabel('PC2')
+    adjust_text(texts, lim=10, text_from_points=False)
+    plot.savefig("plots/pca-drms-pc1-pc2.pdf")
+
+
 @click.command()
 @click.argument('input-file', type=click.File('r'))
 @click.argument('output-file', type=click.File('w'), default='-')
@@ -45,7 +65,6 @@ def main(input_file, output_file, plot):
         'Mut': str, 'Algs': int, 'Freq': int, 'Poly': int,
         'Selection': int, 'Susc': int, 'Position': int
     })
-    exit(1)
     arr = np.array(data)
     pca = PCA()
     arr = pca.fit_transform(arr)

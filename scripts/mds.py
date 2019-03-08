@@ -19,7 +19,7 @@ def main(input_file, output_file):
         'Selection': int, 'Susc': int, 'Position': int
     })
     arr = np.array(data)
-    mds = MDS(random_state=5)
+    mds = MDS(random_state=4)
     pos = mds.fit_transform(arr)
     plot.figure(figsize=(8, 8))
     texts = []
