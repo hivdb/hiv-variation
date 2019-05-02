@@ -6,7 +6,7 @@ import click
 from drmlookup import build_algdrmlookup_with_numalgs
 
 import numpy as np
-from scipy.stats import chi2_contingency
+from scipy.stats import fisher_exact, chi2_contingency
 
 
 GENE_CHOICES = ('PR', 'RT', 'IN')
@@ -48,7 +48,7 @@ def create_prevalence_table(
     if no_subtype:
         major_subtypes = []
     else:
-        for subtype in major_subtypes + ['Others']:
+        for subtype in list(major_subtypes) + ['Others']:
             header.extend([
                 'Naive Prev ({})'.format(subtype),
                 '# Naive ({})'.format(subtype),
@@ -62,6 +62,7 @@ def create_prevalence_table(
     header.extend([
         '# Algs',
         'P Value',
+        '3-way P Value',
         'Fold Change',
         'Is Significant',
     ])
@@ -69,6 +70,7 @@ def create_prevalence_table(
         output_file, header, extrasaction='ignore', delimiter='\t')
     writer.writeheader()
     rows = {}
+    threeway_table = {}
     for item in prevalence_data:
         if item['gene'] != gene:
             continue
@@ -92,7 +94,9 @@ def create_prevalence_table(
         count = item['count']
         total = item['total']
         pcnt = item['percent']
-        if subtype in ['All', 'Others'] + major_subtypes:
+        if subtype in major_subtypes and rx in ('art', 'naive'):
+            threeway_table[(pos, aa, rx, subtype)] = (count, total - count)
+        if subtype in ['All', 'Others'] + list(major_subtypes):
             if rx == 'naive':
                 row['# Naive Cases ({})'.format(subtype)] = count
                 row['Naive Prev ({})'.format(subtype)] = pcnt
@@ -110,7 +114,10 @@ def create_prevalence_table(
                 row['Max Naive Prev'] = pcnt
                 row['Max Naive Total'] = total
                 row['Max Naive Subtype'] = subtype
+
     for row in rows.values():
+        pos = row['Position']
+        aa = row['AA']
         naive_pos = row['# Naive Cases (All)']
         naive_neg = row['# Naive (All)'] - naive_pos
         treated_pos = row['# Treated Cases (All)']
@@ -119,13 +126,11 @@ def create_prevalence_table(
             [naive_pos, naive_neg],
             [treated_pos, treated_neg]
         ])
-        if naive_pos == treated_pos == 0:
+        try:
+            _, p = fisher_exact(obs)
+        except ValueError:
             p = 1.0
-        elif naive_neg == treated_neg == 0:
-            p = 1.0
-        else:
-            _, p, _, _ = chi2_contingency(obs)
-        fold_change = 1e4
+        fold_change = 1e2
         naive_pos_pcnt = row['Naive Prev (All)']
         treated_pos_pcnt = row['Treated Prev (All)']
         if naive_pos_pcnt > 0:
@@ -136,6 +141,18 @@ def create_prevalence_table(
         row['P Value'] = p
         row['Fold Change'] = fold_change
         row['Is Significant'] = is_sig
+        threeway_obs = []
+        for rx in ('art', 'naive'):
+            obs1 = []
+            for subtype in major_subtypes:
+                obs1.append(threeway_table.get((pos, aa, rx, subtype), (0, 0)))
+            threeway_obs.append(obs1)
+        threeway_obs = np.array(threeway_obs)
+        try:
+            _, threeway_p, _, _ = chi2_contingency(threeway_obs)
+        except ValueError:
+            threeway_p = 1.0
+        row['3-way P Value'] = threeway_p
         writer.writerow(row)
 
 

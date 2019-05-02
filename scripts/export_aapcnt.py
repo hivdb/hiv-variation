@@ -16,6 +16,7 @@ ClinicalIsolate = models.ClinicalIsolate
 Subtype = models.Subtype
 Sequence = models.Sequence
 Reference = models.Reference
+RefLink = models.RefLink
 
 GENES = ('PR', 'RT', 'IN')
 DRUG_CLASSES = ('PI', 'NRTI', 'NNRTI', 'RTI', 'INSTI')
@@ -63,6 +64,7 @@ DRUG_CLASS_RX_QUERIES = {
     },
 }
 MAJOR_SUBTYPES = ['A', 'B', 'C', 'CRF01_AE', 'CRF02_AG', 'D', 'F', 'G']
+MAJOR_SUBTYPES_HIV2 = ['A', 'B']
 AMINO_ACIDS = 'ACDEFGHIKLMNPQRSTVWY_-*'
 # UNUSUAL_CUTOFF = 0.0001  # 1 in 10,000 or 0.01%
 CSV_HEADER = [
@@ -95,6 +97,14 @@ CRITERIA_CHOICES = {
 }
 
 
+def load_subtype_lookup(fp):
+    rows = csv.DictReader(fp)
+    result = {}
+    for row in rows:
+        result[row['Accession']] = row['Subtype']
+    return result
+
+
 def iter_isolates(drugclass, rx_type, criteria, is_hiv2):
     print('Processing {} isolates ({})...'
           .format(drugclass, rx_type))
@@ -110,6 +120,9 @@ def iter_isolates(drugclass, rx_type, criteria, is_hiv2):
             Isolate.gene == gene,
             Isolate.isolate_type == 'Clinical',
             Isolate._host.has(Host.host == 'Human'),
+            Isolate.references.any(
+                RefLink.reference.has(Reference.published.is_(True))
+            ),
             *conds
         )
         .options(db.selectinload(Isolate.sequences)
@@ -139,19 +152,27 @@ def iter_isolates(drugclass, rx_type, criteria, is_hiv2):
     print('  {0} isolates...                   '.format(total))
 
 
-def stat_mutations(drugclass, rx_type, criteria, is_hiv2, allow_mixture):
+def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
+                   allow_mixture, seq_subtypes):
     counter = defaultdict(lambda: defaultdict(set))
     total_counter = defaultdict(lambda: defaultdict(set))
     rx_counter = defaultdict(set)
     ptids = set()
     subtype_counter = Counter()
-    major_subtypes = [] if is_hiv2 else MAJOR_SUBTYPES
+    major_subtypes = MAJOR_SUBTYPES_HIV2 if is_hiv2 else MAJOR_SUBTYPES
     for isolate in iter_isolates(drugclass, rx_type, criteria, is_hiv2):
         ptid = isolate.patient_id
         ptids.add(ptid)
         # this method returns consensus or single sequence
         sequence = isolate.get_or_create_consensus()
-        subtype = isolate.subtype
+        subtype_key = sequence.accession or 'PT{}'.format(isolate.patient_id)
+        if sequence.sequence_type == 'Consensus':
+            for seq in isolate.sequences:
+                if seq.sequence_type == 'Sequence':
+                    subtype_key = seq.accession
+                    break
+        subtype = seq_subtypes.get(subtype_key, isolate.subtype)
+        subtype = subtype and subtype.replace('Group ', '')
         if subtype in major_subtypes:
             subtype_counter[subtype] += 1
         else:
@@ -230,21 +251,30 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2, allow_mixture):
 @click.option('--filter', type=click.Choice(CRITERIA_CHOICES.keys()),
               multiple=True, default=('NO_CLONES', 'NO_QA_ISSUES'),
               show_default=True, help='specify filter criteria')
+@click.option('--no-filter', is_flag=True,
+              help='Don\'t apply any extra filter to the query')
 @click.option('--allow-mixture', is_flag=True,
               help='the result should include mixtures')
+@click.option('--subtype-lookup', type=click.File('r'))
 @click.option('--hiv2', is_flag=True, help='create table for HIV-2 sequences')
 @click.option('--format', type=click.Choice(['json', 'csv']),
               default='json', help='output format')
 @click.option('--ugly-json', is_flag=True,
               help='output compressed (ugly) JSON instead of a pretty one')
-def export_aapcnt(drugclass, output_file, filter,
-                  allow_mixture, hiv2, format, ugly_json):
+def export_aapcnt(drugclass, output_file, filter, no_filter,
+                  allow_mixture, subtype_lookup, hiv2, format, ugly_json):
     result = []
+    if no_filter:
+        filter = []
+    seq_subtypes = {}
+    if subtype_lookup:
+        seq_subtypes = load_subtype_lookup(subtype_lookup)
     with app.app_context():
         for dc in drugclass:
-            for rt in ('naive', 'art'):
+            for rt in ('all', 'naive', 'art'):
                 result.extend(
-                    stat_mutations(dc, rt, filter, hiv2, allow_mixture))
+                    stat_mutations(dc, rt, filter, hiv2,
+                                   allow_mixture, seq_subtypes))
     if format == 'json':
         indent = None if ugly_json else '  '
         json.dump(result, output_file, indent=indent)
