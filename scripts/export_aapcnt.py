@@ -65,7 +65,7 @@ DRUG_CLASS_RX_QUERIES = {
 }
 MAJOR_SUBTYPES = ['A', 'B', 'C', 'CRF01_AE', 'CRF02_AG', 'D', 'F', 'G']
 MAJOR_SUBTYPES_HIV2 = ['A', 'B']
-AMINO_ACIDS = 'ACDEFGHIKLMNPQRSTVWY_-*'
+AMINO_ACIDS = 'ACDEFGHIKLMNPQRSTVWY_-'
 # UNUSUAL_CUTOFF = 0.0001  # 1 in 10,000 or 0.01%
 CSV_HEADER = [
     'gene',
@@ -84,6 +84,8 @@ CRITERIA_CHOICES = {
     'HIV2_ONLY': Isolate._species.has(Species.species == 'HIV2'),
     'PLASMA_ONLY': Isolate.clinical_isolate.has(
         ClinicalIsolate.source == 'Plasma'),
+    'SANGER_ONLY': Isolate.clinical_isolate.has(
+        ClinicalIsolate.seq_method == 'Dideoxy'),
     'NO_CLONES': Isolate.clinical_isolate.has(
         ClinicalIsolate.clone_method == 'None'),
     'NO_QA_ISSUES': ~Isolate._filter.has(),
@@ -93,6 +95,9 @@ CRITERIA_CHOICES = {
     ),
     'NO_PARTIAL_MUTS': Isolate.sequences.any(
         Sequence.sequence_type == 'PartialMutationList'
+    ),
+    'PUBLISHED': Isolate.references.any(
+        RefLink.reference.has(Reference.published.is_(True))
     ),
 }
 
@@ -120,9 +125,8 @@ def iter_isolates(drugclass, rx_type, criteria, is_hiv2):
             Isolate.gene == gene,
             Isolate.isolate_type == 'Clinical',
             Isolate._host.has(Host.host == 'Human'),
-            Isolate.references.any(
-                RefLink.reference.has(Reference.published.is_(True))
-            ),
+            # Exclude Damond 2005
+            ~Isolate.references.any(RefLink.reference_id == 2350),
             *conds
         )
         .options(db.selectinload(Isolate.sequences)
@@ -153,13 +157,15 @@ def iter_isolates(drugclass, rx_type, criteria, is_hiv2):
 
 
 def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
-                   allow_mixture, seq_subtypes):
+                   denominator, allow_mixture, seq_subtypes):
+    denom_use_patients = denominator == 'patients'
     counter = defaultdict(lambda: defaultdict(set))
     total_counter = defaultdict(lambda: defaultdict(set))
     rx_counter = defaultdict(set)
     ptids = set()
     subtype_counter = Counter()
     major_subtypes = MAJOR_SUBTYPES_HIV2 if is_hiv2 else MAJOR_SUBTYPES
+    gene = DRUG_CLASS_GENE_MAP[drugclass]
     for isolate in iter_isolates(drugclass, rx_type, criteria, is_hiv2):
         ptid = isolate.patient_id
         ptids.add(ptid)
@@ -182,11 +188,11 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
             rx = isolate.total_rx
             if 'RAL' in rx.ii_list:
                 rx_counter['RAL'].add(ptid)
-            elif 'EVG' in rx.ii_list:
+            if 'EVG' in rx.ii_list:
                 rx_counter['EVG'].add(ptid)
-            elif 'DTG' in rx.ii_list:
+            if 'DTG' in rx.ii_list:
                 rx_counter['DTG'].add(ptid)
-            elif 'INI' in rx.ii_list:
+            if 'INI' in rx.ii_list:
                 rx_counter['INI'].add(ptid)
         for pos, aas in sequence.aas:
             if '_' in aas:
@@ -198,15 +204,18 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
                 # ignore mixtures
                 continue
             for aa in aas:
+                if aa == '*':
+                    continue
+                totalkey = ptid if denom_use_patients else (ptid, aa)
                 counter[(pos, aa)][subtype].add(ptid)
-                total_counter[pos][subtype].add((ptid, aa))
+                total_counter[pos][subtype].add(totalkey)
                 counter[(pos, aa)]['All'].add(ptid)
-                total_counter[pos]['All'].add((ptid, aa))
+                total_counter[pos]['All'].add(totalkey)
                 if subtype not in major_subtypes:
                     counter[(pos, aa)]['Others'].add(ptid)
-                    total_counter[pos]['Others'].add((ptid, aa))
+                    total_counter[pos]['Others'].add(totalkey)
     total = len(ptids)
-    print('  {0} patients:'.format(total))
+    print('  {0} {1}:'.format(total, denominator))
     for subtype in major_subtypes + ['Others']:
         print('    Subtype {0}: {1} isolates'
               .format(subtype, subtype_counter[subtype]))
@@ -221,9 +230,12 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
         print('    EVG only: {0}/{1}'.format(evgonly, total))
         dtgonly = len(dtgset - ralset - evgset - iniset)
         print('    DTG only: {0}/{1}'.format(dtgonly, total))
-        print('    Remains: {0}/{1}'.format(
-            total - ralonly - evgonly - dtgonly, total))
-    gene = DRUG_CLASS_GENE_MAP[drugclass]
+        knownrx = len(ralset | evgset | dtgset)
+        print('    Combined: {0}/{1}'.format(
+            knownrx - ralonly - evgonly - dtgonly, total))
+        unknownrx = len(iniset - ralset - evgset - dtgset)
+        print('    Unknown: {0}/{1}'.format(
+            unknownrx, total))
     for pos in sorted(total_counter.keys()):
         totals = total_counter[pos]
         for aa in AMINO_ACIDS:
@@ -255,6 +267,9 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
               help='Don\'t apply any extra filter to the query')
 @click.option('--allow-mixture', is_flag=True,
               help='the result should include mixtures')
+@click.option('--denominator', default='patients',
+              type=click.Choice(['patients', 'patient-variants']),
+              help='denominator when calculating the prevalence')
 @click.option('--subtype-lookup', type=click.File('r'))
 @click.option('--hiv2', is_flag=True, help='create table for HIV-2 sequences')
 @click.option('--format', type=click.Choice(['json', 'csv']),
@@ -262,7 +277,8 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
 @click.option('--ugly-json', is_flag=True,
               help='output compressed (ugly) JSON instead of a pretty one')
 def export_aapcnt(drugclass, output_file, filter, no_filter,
-                  allow_mixture, subtype_lookup, hiv2, format, ugly_json):
+                  allow_mixture, denominator, subtype_lookup,
+                  hiv2, format, ugly_json):
     result = []
     if no_filter:
         filter = []
@@ -273,7 +289,7 @@ def export_aapcnt(drugclass, output_file, filter, no_filter,
         for dc in drugclass:
             for rt in ('all', 'naive', 'art'):
                 result.extend(
-                    stat_mutations(dc, rt, filter, hiv2,
+                    stat_mutations(dc, rt, filter, hiv2, denominator,
                                    allow_mixture, seq_subtypes))
     if format == 'json':
         indent = None if ugly_json else '  '

@@ -83,7 +83,7 @@ def create_prevalence_table(
             rows[(pos, aa)] = {
                 'Position': pos,
                 'AA': aa,
-                'Max Naive Prev': 0,
+                'Max Naive Prev': '0%',
                 'Max Naive Total': 0,
                 'Max Naive Subtype': '-',
                 '# Algs': num_algs,
@@ -99,19 +99,21 @@ def create_prevalence_table(
         if subtype in ['All', 'Others'] + list(major_subtypes):
             if rx == 'naive':
                 row['# Naive Cases ({})'.format(subtype)] = count
-                row['Naive Prev ({})'.format(subtype)] = pcnt
+                row['Naive Prev ({})'.format(subtype)] = \
+                    '{}%'.format(pcnt * 100)
                 row['# Naive ({})'.format(subtype)] = total
             if rx == 'art':
                 row['# Treated Cases ({})'.format(subtype)] = count
-                row['Treated Prev ({})'.format(subtype)] = pcnt
+                row['Treated Prev ({})'.format(subtype)] = \
+                    '{}%'.format(pcnt * 100)
                 row['# Treated ({})'.format(subtype)] = total
         if subtype not in ('All', 'Others', 'Unknown') and rx == 'naive':
             if total < 200:
                 # an arbitrary threshold
                 continue
-            if pcnt > row['Max Naive Prev']:
+            if pcnt > float(row['Max Naive Prev'][:-1]) / 100:
                 row['Max Naive Cases'] = count
-                row['Max Naive Prev'] = pcnt
+                row['Max Naive Prev'] = '{}%'.format(pcnt * 100)
                 row['Max Naive Total'] = total
                 row['Max Naive Subtype'] = subtype
 
@@ -128,11 +130,12 @@ def create_prevalence_table(
         ])
         try:
             _, p = fisher_exact(obs)
+            # _, p, _, _ = chi2_contingency(obs)
         except ValueError:
             p = 1.0
         fold_change = 1e2
-        naive_pos_pcnt = row['Naive Prev (All)']
-        treated_pos_pcnt = row['Treated Prev (All)']
+        naive_pos_pcnt = float(row['Naive Prev (All)'][:-1]) / 100
+        treated_pos_pcnt = float(row['Treated Prev (All)'][:-1]) / 100
         if naive_pos_pcnt > 0:
             fold_change = (treated_pos_pcnt / naive_pos_pcnt)
         is_sig = row['# Algs'] > 1 or (treated_pos >= MIN_TREATED_CASES and

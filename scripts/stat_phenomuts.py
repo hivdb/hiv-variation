@@ -4,7 +4,7 @@ import csv
 import click
 import requests
 
-from collections import Counter
+from collections import Counter, defaultdict
 from drmlookup import build_algdrmlookup_with_numalgs
 
 GENOPHENO_DATASET_URL = {
@@ -55,15 +55,20 @@ def create_filter_func(method, all_methods):
 
 def iter_mutations(phenodata):
     """Iterate every mutation from giving genopheno dataset"""
+    drug_pattern = re.compile(r'^[A-Z]{3}$')
     key_pattern = re.compile(r'^P\d+$')
     for row in phenodata:
-        for key, aas in row.items():
+        drugs = []
+        for key, val in row.items():
+            if drug_pattern.match(key) and val != 'NA':
+                drugs.append(key)
+            aas = val
             if aas in ('-', '.') or not key_pattern.match(key):
                 continue
             aas = aas.replace('#', 'i').replace('~', 'd')
             pos = int(key[1:])
             for aa in aas:
-                yield pos, aa
+                yield pos, aa, drugs
 
 
 @click.command()
@@ -79,19 +84,25 @@ def iter_mutations(phenodata):
 def stat_phenomuts(output_file, method, all_methods, drug_class):
     filter_func = create_filter_func(method, all_methods)
     phenodata = load_phenodata(drug_class, filter_func)
-    mutations = iter_mutations(phenodata)
-    result = Counter(mutations)
+    result = Counter()
+    drug_result = defaultdict(Counter)
+    for pos, aa, drugs in iter_mutations(phenodata):
+        result[(pos, aa)] += 1
+        for drug in drugs:
+            drug_result[drug][(pos, aa)] += 1
     result = sorted(result.items(), key=lambda r: (r[0][0], -r[1]))
+    drugs = sorted(drug_result.keys())
     writer = csv.writer(output_file, delimiter='\t')
     writer.writerow(['# Filter conditions:'])
     writer.writerow(['# - Method IN ({})'.format(', '.join(method))])
     writer.writerow([])
-    writer.writerow(['Position', 'AA', '# Algs', 'Count'])
+    writer.writerow(['Position', 'AA', '# Algs', 'Count'] + drugs)
     gene = DRUG_CLASS_GENE_MAP[drug_class]
     algdrmlookup = ALGDRMLOOKUP[gene]
     for (pos, aa), count in result:
         numalgs = algdrmlookup.get((pos, aa), 0)
-        writer.writerow([pos, aa, numalgs, count])
+        writer.writerow([pos, aa, numalgs, count] +
+                        [drug_result[d][(pos, aa)] for d in drugs])
 
 
 if __name__ == '__main__':
