@@ -18,9 +18,9 @@ Sequence = models.Sequence
 Reference = models.Reference
 
 UNUSUAL_AAPCNT_THRESHOLD = {
-    'PR': 0.002,  # 0.2%
-    'RT': 0.002,  # 0.2%
-    'IN': 0.005   # 0.5%
+    'PR': 0.01,
+    'RT': 0.01,
+    'IN': 0.01
 }
 GENES = ('PR', 'RT', 'IN')
 DRUG_CLASSES = ('PI', 'NRTI', 'NNRTI', 'RTI', 'INSTI')
@@ -179,14 +179,18 @@ def run_seqqa(drugclass, criteria, is_hiv2,
 @click.option('--filter', type=click.Choice(CRITERIA_CHOICES.keys()),
               multiple=True, default=('NO_CLONES', 'NO_QA_ISSUES'),
               show_default=True, help='specify filter criteria')
+@click.option('--no-filter', is_flag=True)
 @click.option('--hiv2', is_flag=True, help='create table for HIV-2 sequences')
 @click.argument('output_file', type=click.File('w'), default='-')
-def export_seqqa(aapcnt_json, apobec_json, output_file, filter, hiv2):
+def export_seqqa(aapcnt_json, apobec_json, output_file,
+                 filter, no_filter, hiv2):
     result = []
     aapcnt_data = json.load(aapcnt_json)
     cons_lookup = build_consensus_lookup(aapcnt_data)
     uum_lookup = unusual_mutation_lookup(aapcnt_data)
     apm_lookup = apobec_mutation_lookup(apobec_json)
+    if no_filter:
+        filter = []
     with app.app_context():
         for dc in ('PI', 'RTI', 'INSTI'):
             result.extend(

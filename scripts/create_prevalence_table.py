@@ -6,7 +6,8 @@ import click
 from drmlookup import build_algdrmlookup_with_numalgs
 
 import numpy as np
-from scipy.stats import fisher_exact, chi2_contingency
+from sklearn import linear_model
+from scipy.stats import fisher_exact
 
 
 GENE_CHOICES = ('PR', 'RT', 'IN')
@@ -26,16 +27,12 @@ ALGDRMLOOKUP = build_algdrmlookup_with_numalgs()
               default=('A', 'B', 'C', 'CRF01_AE', 'CRF02_AG', 'D', 'F', 'G'),
               show_default=True, help='stat for these subtypes')
 @click.option('--no-subtype', is_flag=True, help='don\'t stat for subtypes')
-@click.option('--num-algs-range', type=int, nargs=2,
-              default=(1, 4), show_default=True,
-              help='specify the # Algs range of including mutations')
 @click.argument('gene', required=True,
                 type=click.Choice(GENE_CHOICES))
 def create_prevalence_table(
-        prevalence_file, output_file, major_subtypes,
-        no_subtype, num_algs_range, gene):
+        prevalence_file, output_file,
+        major_subtypes, no_subtype, gene):
     prevalence_data = json.load(prevalence_file)
-    algdrmlookup = ALGDRMLOOKUP[gene]
     header = [
         'Position', 'AA',
         '# Naive (All)',
@@ -60,25 +57,18 @@ def create_prevalence_table(
             'Max Naive Subtype',
         ])
     header.extend([
-        '# Algs',
         'P Value',
-        '3-way P Value',
         'Fold Change',
-        'Is Significant',
     ])
     writer = csv.DictWriter(
         output_file, header, extrasaction='ignore', delimiter='\t')
     writer.writeheader()
     rows = {}
-    threeway_table = {}
     for item in prevalence_data:
         if item['gene'] != gene:
             continue
         pos = item['position']
         aa = item['aa']
-        num_algs = algdrmlookup.get((pos, aa), 0)
-        if num_algs < num_algs_range[0] or num_algs > num_algs_range[1]:
-            continue
         if (pos, aa) not in rows:
             rows[(pos, aa)] = {
                 'Position': pos,
@@ -86,7 +76,6 @@ def create_prevalence_table(
                 'Max Naive Prev': '0%',
                 'Max Naive Total': 0,
                 'Max Naive Subtype': '-',
-                '# Algs': num_algs,
             }
         row = rows[(pos, aa)]
         rx = item['rx_type']
@@ -94,8 +83,6 @@ def create_prevalence_table(
         count = item['count']
         total = item['total']
         pcnt = item['percent']
-        if subtype in major_subtypes and rx in ('art', 'naive'):
-            threeway_table[(pos, aa, rx, subtype)] = (count, total - count)
         if subtype in ['All', 'Others'] + list(major_subtypes):
             if rx == 'naive':
                 row['# Naive Cases ({})'.format(subtype)] = count
@@ -138,24 +125,8 @@ def create_prevalence_table(
         treated_pos_pcnt = float(row['Treated Prev (All)'][:-1]) / 100
         if naive_pos_pcnt > 0:
             fold_change = (treated_pos_pcnt / naive_pos_pcnt)
-        is_sig = row['# Algs'] > 1 or (treated_pos >= MIN_TREATED_CASES and
-                                       naive_pos_pcnt < MAX_NAIVE_PCNT and
-                                       fold_change >= MIN_FOLD_CHANGE)
         row['P Value'] = p
         row['Fold Change'] = fold_change
-        row['Is Significant'] = is_sig
-        threeway_obs = []
-        for rx in ('art', 'naive'):
-            obs1 = []
-            for subtype in major_subtypes:
-                obs1.append(threeway_table.get((pos, aa, rx, subtype), (0, 0)))
-            threeway_obs.append(obs1)
-        threeway_obs = np.array(threeway_obs)
-        try:
-            _, threeway_p, _, _ = chi2_contingency(threeway_obs)
-        except ValueError:
-            threeway_p = 1.0
-        row['3-way P Value'] = threeway_p
         writer.writerow(row)
 
 

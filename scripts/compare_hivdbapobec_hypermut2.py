@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 import sys
 import csv
+from itertools import groupby
 
 from hivdbql import app
 from hivdbql.utils import dbutils
@@ -13,10 +14,9 @@ db = app.db
 models = app.models
 
 FIELDS = [
-    'Gene',
-    'IsolateID',
     'PtID',
     'IsolateDate',
+    'Genes',
     'AccessionID',
     'Source',
     'SeqMethod',
@@ -28,10 +28,8 @@ FIELDS = [
     'Adjusted Hypermut Ratio (+1)',
     'Hypermut P-value (Fisher Exact)',
     'HIVDB APOBEC Count',
-    'HIVDB 2019APOBEC Count',
     'Stop Codon Count',
-    'HIVDB APOBECs',
-    'HIVDB 2019APOBECs',
+    'HIVDB APOBECs'
 ]
 
 GENE_NACONS = [
@@ -80,6 +78,12 @@ GENE_NACONS = [
 
 GENE_SIZES = [99, 560, 288]
 
+GENE_ORDER = {
+    'PR': 0,
+    'RT': 1,
+    'IN': 2
+}
+
 DRUG_CLASSES = ['PI', 'RTI', 'INSTI']
 
 ACTIVE_SITES = [
@@ -93,109 +97,119 @@ ACTIVE_SITES = [
 ]
 
 
-def apobec_mutation_map():
-    apobecs = models.LUAPOBEC.query.filter(
-        models.LUAPOBEC.is_apobec.is_(True)
-    )
-    return {(m.gene, m.pos, m.hm) for m in apobecs}
+APOBEC_MUTATION_MAP = models.LUAPOBEC.apobec_lookup_table()
 
 
-APOBEC_MUTATION_MAP = apobec_mutation_map()
-
-
-def apobec_2019_mutation_map():
-    with open('/Users/philip/Dropbox/APOBECs/APBOECs20190809.csv') as fp:
-        reader = csv.reader(fp)
-        return {(g, int(p), a) for g, p, a in reader}
-
-
-APOBEC_2019_MUTATION_MAP = apobec_2019_mutation_map()
-
-
-def iter_sequences(dc):
-    query = models.Isolate.make_query('HIV1', dc, 'all', [])
+def iter_isolates():
+    Isolate = models.Isolate
+    query = Isolate.make_query(
+        'HIV1', None, None, [
+            'NO_CLONES',
+            'PLASMA_OR_PBMC',
+            'SANGER_ONLY',
+            'NASEQ_AVAILABLE'
+        ])
     query = query.options(db.selectinload('sequences'))
     query = query.options(db.joinedload('clinical_isolate'))
     isolates = dbutils.chunk_query(
-        query, models.Isolate.id, chunksize=20000,
+        query, (
+            Isolate.patient_id,
+            Isolate.isolate_date,
+            Isolate.gene
+        ), chunksize=20000,
         on_progress=(lambda o, t:
                      print('{0}/{1} isolates...'.format(o, t), end='\r')),
         on_finish=(lambda t:
                    print('{0} isolates.                        '.format(t)))
     )
-    for isolate in isolates:
-        for seq in isolate.sequences:
-            if seq.sequence_type != 'Sequence':
-                continue
-            if seq.naseq is None:
-                continue
-            yield isolate, seq
-
-
-def compare(refseq, seq, gene, gene_size):
-    naseq = seq.naseq
-    first_aa = seq.first_aa
-    last_aa = seq.last_aa
-    naseq = ('...' * (first_aa - 1) +
-             naseq +
-             '...' * (gene_size - last_aa))
-    hypermut_result = hypermut(refseq, naseq)
-    hivdb_result = [0, 0, []]
-    hivdb2019_result = [0, 0, []]
-    for pos, aas in seq.aas:
-        if len(aas) > 4:
-            # ignore highly ambiguous sites
+    isolates = groupby(
+        isolates, lambda iso: (iso.patient_id, iso.isolate_date))
+    for (ptid, date), isolates in isolates:
+        isolates = sorted(isolates, key=lambda iso: GENE_ORDER[iso.gene])
+        genes = ''.join(iso.gene for iso in isolates)
+        if genes not in ('PRRT', 'PRRTIN', 'IN'):
             continue
-        refaa = translate_codon(refseq[pos * 3 - 3:pos * 3])
-        if any((gene, pos, aa) in APOBEC_MUTATION_MAP
-               for aa in aas):
-            hivdb_result[0] += 1
-            hivdb_result[2].append('{}{}{}'.format(refaa, pos, aas))
-        if any((gene, pos, aa) in APOBEC_2019_MUTATION_MAP
-               for aa in aas):
-            hivdb2019_result[0] += 1
-            hivdb2019_result[2].append('{}{}{}'.format(refaa, pos, aas))
-        if '*' in aas:
-            hivdb_result[1] += 1
-            hivdb2019_result[1] += 1
-        if any((gene, pos, aa) in ACTIVE_SITES for aa in aas):
-            hivdb_result[1] += 1
-            hivdb2019_result[1] += 1
-    return hypermut_result, hivdb_result, hivdb2019_result
+        source = ','.join(sorted({
+            iso.clinical_isolate.source
+            for iso in isolates
+        }))
+        if ',' in source:
+            continue
+        yield isolates, genes, source
+
+
+def compare(isolates):
+    all_naseq = ''
+    all_refseq = ''
+    hivdb_result = [0, 0, []]
+    for isolate in isolates:
+        seq = isolate.get_or_create_consensus()
+
+        gene = isolate.gene
+        geneidx = GENE_ORDER[gene]
+        gene_size = GENE_SIZES[geneidx]
+
+        naseq = seq.naseq
+        first_aa = seq.first_aa
+        last_aa = seq.last_aa
+        if naseq is None:
+            print(seq)
+        naseq = ('...' * (first_aa - 1) +
+                 naseq +
+                 '...' * (gene_size - last_aa))
+
+        refseq = GENE_NACONS[geneidx]
+
+        all_naseq += naseq
+        all_refseq += refseq
+
+        for pos, aas in seq.aas:
+            if len(aas) > 4:
+                # ignore highly ambiguous sites
+                continue
+            refaa = translate_codon(refseq[pos * 3 - 3:pos * 3])
+            if any((gene, pos, aa) in APOBEC_MUTATION_MAP
+                   for aa in aas):
+                hivdb_result[0] += 1
+                hivdb_result[2].append('{}{}{}'.format(refaa, pos, aas))
+            if '*' in aas:
+                hivdb_result[1] += 1
+            if any((gene, pos, aa) in ACTIVE_SITES for aa in aas):
+                hivdb_result[1] += 1
+
+    hypermut_result = hypermut(all_refseq, all_naseq)
+    return hypermut_result, hivdb_result
 
 
 def compare_all():
-    for geneidx, gene in enumerate(('PR', 'RT', 'IN')):
-        gene_size = GENE_SIZES[geneidx]
-        refseq = GENE_NACONS[geneidx]
-        dc = DRUG_CLASSES[geneidx]
-        for isolate, seq in iter_sequences(dc):
-            hypermut_result, hivdb_result, hivdb2019_result = \
-                compare(refseq, seq, gene, gene_size)
-            hasclin = isolate.clinical_isolate is not None
-            yield {
-                'Gene': gene,
-                'IsolateID': isolate.id,
-                'PtID': isolate.patient_id,
-                'IsolateDate': isolate.isolate_date,
-                'AccessionID': seq.accession,
-                'Source': (isolate.clinical_isolate.source
-                           if hasclin else None),
-                'SeqMethod': (isolate.clinical_isolate.seq_method
-                              if hasclin else None),
-                'Hypermut PositiveAPOBECs': hypermut_result[0],
-                'Hypermut PotentialAPOBECs': hypermut_result[1],
-                'Hypermut PositiveControls': hypermut_result[2],
-                'Hypermut PotentialControls': hypermut_result[3],
-                'Hypermut Ratio (A/B)/(C/D)': hypermut_result[4],
-                'Adjusted Hypermut Ratio (+1)': hypermut_result[5],
-                'Hypermut P-value (Fisher Exact)': hypermut_result[6],
-                'HIVDB APOBEC Count': hivdb_result[0],
-                'HIVDB 2019APOBEC Count': hivdb2019_result[0],
-                'Stop Codon Count': hivdb_result[1],
-                'HIVDB APOBECs': ', '.join(hivdb_result[2]),
-                'HIVDB 2019APOBECs': ', '.join(hivdb2019_result[2])
-            }
+    for isolates, genes, source in iter_isolates():
+        hypermut_result, hivdb_result = compare(isolates)
+        isolate0 = isolates[0]
+        yield {
+            'PtID': isolate0.patient_id,
+            'IsolateDate': isolate0.isolate_date,
+            'Genes': genes,
+            'AccessionID': ','.join(sorted({
+                iso.get_or_create_consensus().accession
+                for iso in isolates
+                if iso.get_or_create_consensus().accession
+            })),
+            'Source': source,
+            'SeqMethod': ','.join(sorted({
+                iso.clinical_isolate.seq_method
+                for iso in isolates
+            })),
+            'Hypermut PositiveAPOBECs': hypermut_result[0],
+            'Hypermut PotentialAPOBECs': hypermut_result[1],
+            'Hypermut PositiveControls': hypermut_result[2],
+            'Hypermut PotentialControls': hypermut_result[3],
+            'Hypermut Ratio (A/B)/(C/D)': hypermut_result[4],
+            'Adjusted Hypermut Ratio (+1)': hypermut_result[5],
+            'Hypermut P-value (Fisher Exact)': hypermut_result[6],
+            'HIVDB APOBEC Count': hivdb_result[0],
+            'Stop Codon Count': hivdb_result[1],
+            'HIVDB APOBECs': ', '.join(hivdb_result[2])
+        }
 
 
 def main():
@@ -212,4 +226,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    with app.app_context():
+        main()
