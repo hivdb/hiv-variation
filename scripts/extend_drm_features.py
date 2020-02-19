@@ -56,20 +56,20 @@ def extend_drm_feature(drm_feature_csv, extended_csv, aapcnt, major_subtypes):
     for subtype in list(major_subtypes) + ['Others']:
         header.extend([
             'Naive Prev ({})'.format(subtype),
-            '# Naive ({})'.format(subtype),
+            # '# Naive ({})'.format(subtype),
         ])
     header.extend([
         'Max Naive Total',
-        'Max Naive Cases',
+        # 'Max Naive Cases',
         'Max Naive Prev',
         'Max Naive Subtype',
     ])
     header.extend([
-        'P Value',
+        # 'P Value',
         'Fold Change',
     ])
     writer = csv.DictWriter(
-        extended_csv, header, extrasaction='ignore')
+        extended_csv, header, extrasaction='ignore', restval='NA')
     writer.writeheader()
     for row in rows:
         gene, pos, aa, drugclass = tuple(row[:4])
@@ -90,7 +90,10 @@ def extend_drm_feature(drm_feature_csv, extended_csv, aapcnt, major_subtypes):
             subtype = item['subtype']
             count = item['count']
             total = item['total']
-            pcnt = item['percent']
+            if rx == 'naive':
+                pcnt = item['without_sdrm'] / item['total']
+            else:
+                pcnt = item['percent']
             if rx == 'naive' and subtype == 'All':
                 row['# Naive w/o SDRM'] = item['without_sdrm']
                 row['# Naive w/ SDRM'] = item['with_sdrm']
