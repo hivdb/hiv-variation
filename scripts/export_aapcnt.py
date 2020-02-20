@@ -307,16 +307,25 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
                     totalkey = ptid if denom_use_patients else (ptid, aa)
                     counter[(pos, aa)]['All'].add(ptid)
                     total_counter[pos]['All'].add(totalkey)
-                    if len(sdrms - {(gene, pos, aa)}) > 0:
-                        counter[(pos, aa)]['WithSDRM'].add(ptid)
+                    with_sdrm = len(sdrms - {(gene, pos, aa)}) > 0
+                    if with_sdrm:
+                        counter[(pos, aa)][('All', 'WithSDRM')].add(ptid)
                     else:
-                        counter[(pos, aa)]['WithoutSDRM'].add(ptid)
+                        counter[(pos, aa)][('All', 'WithoutSDRM')].add(ptid)
                     if subtype in report_subtypes:
                         counter[(pos, aa)][subtype].add(ptid)
                         total_counter[pos][subtype].add(totalkey)
+                        if with_sdrm:
+                            counter[(pos, aa)][(subtype, 'WithSDRM')].add(ptid)
+                        else:
+                            counter[(pos, aa)][(subtype, 'WithoutSDRM')].add(ptid)
                     else:
                         counter[(pos, aa)]['Others'].add(ptid)
                         total_counter[pos]['Others'].add(totalkey)
+                        if with_sdrm:
+                            counter[(pos, aa)][('Others', 'WithSDRM')].add(ptid)
+                        else:
+                            counter[(pos, aa)][('Others', 'WithoutSDRM')].add(ptid)
     # if rx_type == 'naive':
     #     for key, value in counter.items():
     #         if value['WithSDRM']:
@@ -361,8 +370,8 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
                     'percent': count / total,
                     'count': count,
                     'total': total,
-                    'with_sdrm': len(counts['WithSDRM']),
-                    'without_sdrm': len(counts['WithoutSDRM']),
+                    'with_sdrm': len(counts[(subtype, 'WithSDRM')]),
+                    'without_sdrm': len(counts[(subtype, 'WithoutSDRM')]),
                 }
 
 
