@@ -1,6 +1,5 @@
 #! /usr/bin/env python
 import csv
-import json
 from itertools import groupby
 from collections import defaultdict, Counter
 
@@ -151,7 +150,7 @@ def iter_isolates(drugclass, rx_type, criteria, is_hiv2, exclude_ptids):
             Isolate.gene == gene,
             Isolate.isolate_type == 'Clinical',
             Isolate._host.has(Host.host == 'Human'),
-            ## Exclude Damond 2005
+            # Exclude Damond 2005
             # ~Isolate.references.any(RefLink.reference_id == 2350),
             *conds
         )
@@ -220,7 +219,7 @@ def find_exclude_ptids(rx, drugclasses, criteria, is_hiv2,
 
 def stat_patients(drugclass, rx_type, criteria, is_hiv2,
                   exclude_ptids):
-    gene = DRUG_CLASS_GENE_MAP[drugclass]
+    # gene = DRUG_CLASS_GENE_MAP[drugclass]
     patient_counter = defaultdict(set)
     isolate_counter = Counter()
     major_subtypes = MAJOR_SUBTYPES_HIV2 if is_hiv2 else MAJOR_SUBTYPES
@@ -284,7 +283,6 @@ def stat_patients(drugclass, rx_type, criteria, is_hiv2,
 def export_aapcnt(drugclass, output_file, species, filter, no_filter,
                   rx_type, subtype_lookup,
                   max_sdrm_per_naive_person):
-    result = []
     if no_filter:
         filter = []
     hiv2 = species == 'HIV2'

@@ -107,6 +107,10 @@ DRUG_CLASS_RX_QUERIES = {
     },
 }
 MAJOR_SUBTYPES = ['A', 'B', 'C', 'CRF01_AE', 'CRF02_AG', 'D', 'F', 'G']
+OTHER_SUBTYPES = [
+    'CRF07_BC', 'CRF12_BF', 'CRF06_cpx', 'CRF08_BC', 'CRF35_AD',
+    'CRF18_cpx', 'CRF45_cpx', 'CRF63_02A1'
+]
 MAJOR_SUBTYPES_HIV2 = ['HIV-2 A', 'HIV-2 B']
 AMINO_ACIDS = 'ACDEFGHIKLMNPQRSTVWY_-'
 # UNUSUAL_CUTOFF = 0.0001  # 1 in 10,000 or 0.01%
@@ -172,7 +176,7 @@ def iter_isolates(drugclass, rx_type, criteria, is_hiv2, exclude_ptids):
             Isolate.gene == gene,
             Isolate.isolate_type == 'Clinical',
             Isolate._host.has(Host.host == 'Human'),
-            ## Exclude Damond 2005
+            # Exclude Damond 2005
             # ~Isolate.references.any(RefLink.reference_id == 2350),
             *conds
         )
@@ -249,6 +253,8 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
     ptids = set()
     subtype_counter = Counter()
     major_subtypes = MAJOR_SUBTYPES_HIV2 if is_hiv2 else MAJOR_SUBTYPES
+    other_subtypes = [] if is_hiv2 else OTHER_SUBTYPES
+    report_subtypes = set(major_subtypes + other_subtypes)
     gene = DRUG_CLASS_GENE_MAP[drugclass]
     isolates_by_ptid = groupby(
         iter_isolates(drugclass, rx_type, criteria, is_hiv2, exclude_ptids),
@@ -270,7 +276,7 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
                         break
             subtype = seq_subtypes.get(subtype_key, isolate.subtype)
             subtype = subtype and subtype.replace('Group ', '')
-            if subtype in major_subtypes:
+            if subtype in report_subtypes:
                 subtype_counter[subtype] += 1
             else:
                 subtype_counter[subtype] += 1
@@ -305,7 +311,7 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
                         counter[(pos, aa)]['WithSDRM'].add(ptid)
                     else:
                         counter[(pos, aa)]['WithoutSDRM'].add(ptid)
-                    if subtype in major_subtypes:
+                    if subtype in report_subtypes:
                         counter[(pos, aa)][subtype].add(ptid)
                         total_counter[pos][subtype].add(totalkey)
                     else:
@@ -318,7 +324,7 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
     #                        .format(repr(key), repr(value['WithSDRM'])))
     total = len(ptids)
     click.echo('  {0} {1}:'.format(total, denominator))
-    for subtype in major_subtypes:
+    for subtype in report_subtypes:
         click.echo('    Subtype {0}: {1} isolates'
                    .format(subtype, subtype_counter[subtype]))
     # if not is_hiv2 and rx_type == 'art':
