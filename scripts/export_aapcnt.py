@@ -146,8 +146,68 @@ CRITERIA_CHOICES = {
     'PUBLISHED': Isolate.references.any(
         RefLink.reference.has(Reference.published.is_(True))
     ),
-    'BEFORE_2009': Isolate.isolate_date < '2009-01-01',
-    'AFTER_2009': Isolate.isolate_date >= '2009-01-01',
+    'BEFORE_1999': Isolate.isolate_date < '1999-01-01',
+    'BETWEEN_1999_2002': (
+        (Isolate.isolate_date >= '1999-01-01') &
+        (Isolate.isolate_date < '2002-01-01')
+    ),
+    'YEAR_2002': (
+        (Isolate.isolate_date >= '2002-01-01') &
+        (Isolate.isolate_date < '2003-01-01')
+    ),
+    'YEAR_2003': (
+        (Isolate.isolate_date >= '2003-01-01') &
+        (Isolate.isolate_date < '2004-01-01')
+    ),
+    'YEAR_2004': (
+        (Isolate.isolate_date >= '2004-01-01') &
+        (Isolate.isolate_date < '2005-01-01')
+    ),
+    'YEAR_2005': (
+        (Isolate.isolate_date >= '2005-01-01') &
+        (Isolate.isolate_date < '2006-01-01')
+    ),
+    'YEAR_2006': (
+        (Isolate.isolate_date >= '2006-01-01') &
+        (Isolate.isolate_date < '2007-01-01')
+    ),
+    'YEAR_2007': (
+        (Isolate.isolate_date >= '2007-01-01') &
+        (Isolate.isolate_date < '2008-01-01')
+    ),
+    'YEAR_2008': (
+        (Isolate.isolate_date >= '2008-01-01') &
+        (Isolate.isolate_date < '2009-01-01')
+    ),
+    'YEAR_2009': (
+        (Isolate.isolate_date >= '2009-01-01') &
+        (Isolate.isolate_date < '2010-01-01')
+    ),
+    'YEAR_2010': (
+        (Isolate.isolate_date >= '2010-01-01') &
+        (Isolate.isolate_date < '2011-01-01')
+    ),
+    'YEAR_2011': (
+        (Isolate.isolate_date >= '2011-01-01') &
+        (Isolate.isolate_date < '2012-01-01')
+    ),
+    'YEAR_2012': (
+        (Isolate.isolate_date >= '2012-01-01') &
+        (Isolate.isolate_date < '2013-01-01')
+    ),
+    'YEAR_2013': (
+        (Isolate.isolate_date >= '2013-01-01') &
+        (Isolate.isolate_date < '2014-01-01')
+    ),
+    'YEAR_2014': (
+        (Isolate.isolate_date >= '2014-01-01') &
+        (Isolate.isolate_date < '2015-01-01')
+    ),
+    'YEAR_2015': (
+        (Isolate.isolate_date >= '2015-01-01') &
+        (Isolate.isolate_date < '2016-01-01')
+    ),
+    'AFTER_2016': Isolate.isolate_date >= '2016-01-01'
 }
 
 SDRM_LOOKUP = hivsdrm.HIVSDRM()
@@ -318,14 +378,17 @@ def stat_mutations(drugclass, rx_type, criteria, is_hiv2,
                         if with_sdrm:
                             counter[(pos, aa)][(subtype, 'WithSDRM')].add(ptid)
                         else:
-                            counter[(pos, aa)][(subtype, 'WithoutSDRM')].add(ptid)
+                            counter[(pos, aa)][(subtype,
+                                                'WithoutSDRM')].add(ptid)
                     else:
                         counter[(pos, aa)]['Others'].add(ptid)
                         total_counter[pos]['Others'].add(totalkey)
                         if with_sdrm:
-                            counter[(pos, aa)][('Others', 'WithSDRM')].add(ptid)
+                            counter[(pos, aa)][('Others',
+                                                'WithSDRM')].add(ptid)
                         else:
-                            counter[(pos, aa)][('Others', 'WithoutSDRM')].add(ptid)
+                            counter[(pos, aa)][('Others',
+                                                'WithoutSDRM')].add(ptid)
     # if rx_type == 'naive':
     #     for key, value in counter.items():
     #         if value['WithSDRM']:

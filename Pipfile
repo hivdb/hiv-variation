@@ -8,16 +8,16 @@ verify_ssl = true
 [packages]
 click = "*"
 ipython = "*"
-numpy = "*"
+#numpy = ">=1.20.2"
 requests = "*"
-scipy = "*"
-matplotlib = "*"
-sklearn = "*"
-seaborn = "*"
+#scipy = "*"
+#matplotlib = "*"
+#sklearn = "*"
+#seaborn = "*"
 PyMySQL = "*"
 adjustText = "*"
-hivdb-graphql = {git = "ssh://git@github.com/hivdb/hivdb-graphql.git",ref = "5b93d8883c874a868fdb5f1b228040e0e2b3281d"}
+hivdb-graphql = {git = "ssh://git@github.com/hivdb/hivdb-graphql.git",ref = "c8f2932"}
 hivfacts = {editable = true,path = "./../hivfacts/hivfacts-python"}
 
 [requires]
-python_version = "3.7"
+python_version = "3.8"
