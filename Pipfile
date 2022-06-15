@@ -18,6 +18,7 @@ PyMySQL = "*"
 adjustText = "*"
 hivdb-graphql = {git = "ssh://git@github.com/hivdb/hivdb-graphql.git",ref = "c8f2932"}
 hivfacts = {editable = true,path = "./../hivfacts/hivfacts-python"}
+scipy = "*"
 
 [requires]
 python_version = "3.8"
